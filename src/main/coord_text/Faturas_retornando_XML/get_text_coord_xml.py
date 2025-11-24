@@ -630,8 +630,9 @@ def converter_lote_para_xml_separado(lote_dados: List[Dict[str, Any]]) -> List[s
 
                     # Adapte a lógica: os atributos 'id' e 'nome' devem ir para o <NotaFiscalEnergia>
                     if key_name == '@id':
-                        root.setAttribute('id', key_value)
-                        keys_to_remove.append(child)
+                        pass
+                        #root.setAttribute('id', key_value)
+                        #keys_to_remove.append(child)
                     elif key_name == '@nome':
                         root.setAttribute('nome', key_value)
                         keys_to_remove.append(child)

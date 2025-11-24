@@ -25,7 +25,7 @@ logging.basicConfig(
     ]
 )
 
-error_uc=[]
+error_uc={}
 
 class EnergisaAutomacao:
     BASE_URL = "https://servicos.energisa.com.br"
@@ -290,15 +290,17 @@ class EnergisaAutomacao:
                 else:
                     logging.error("Resposta não é PDF válido")
                     logging.error(f"Conteúdo: {response.text[:200]}...")
-                    error_uc.append(fr"{cdc}-{digito_verificador}")
+                    #error_uc.append(fr"{codigo_empresa}{cdc}-{digito_verificador}")
+                    error_uc[fr"{codigo_empresa}{cdc}-{digito_verificador}"] = f"Erro {response.status_code}: {response.text}"
             else:
                 logging.info(f"Erro {response.status_code}: {response.text}")
-                error_uc.append(fr"{cdc}-{digito_verificador}")
+                error_uc[fr"{codigo_empresa}{cdc}-{digito_verificador}"] = f"Erro {response.status_code}: {response.text}"
 
         except Exception as e:
             logging.error(f"Erro no download: {e}")
 
         return False
+
 
     def baixar_faturas_para_todas_unidades(self, mes=mes_atual, ano=ano_atual):
         """Tenta baixar faturas para todas as unidades encontradas"""
@@ -338,6 +340,9 @@ if __name__ == "__main__":
         logging.info("Login concluído! Iniciando download das faturas...")
         automacao.baixar_faturas_para_todas_unidades(mes=mes_atual, ano=ano_atual)
         logging.info(f"U/C que não baixaram a fatura: {error_uc}")
+
+        with open("./log/UC_Com_Erro.txt", 'wb') as uctxt:
+            uctxt.write(error_uc)
     else:
         logging.error("Falha no login.")
 

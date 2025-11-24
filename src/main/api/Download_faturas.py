@@ -8,24 +8,25 @@ from curl_cffi import requests as curl_requests
 from dotenv import load_dotenv
 from datetime import datetime
 import logging
+import email_uc
 
 load_dotenv()
 
-mes_atual = datetime.now().month
+mes_atual = 10
 ano_atual = datetime.now().year
 if mes_atual < 10:
     mes_atual = f'0{mes_atual}'
 
 logging.basicConfig(
-    level=logging.INFO,  # Pode ser DEBUG, INFO, WARNING, ERROR, CRITICAL
+    level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
-        logging.FileHandler("energisa_automacao.log", encoding='utf-8'),
-        logging.StreamHandler()  # Mostra também no console
+        logging.FileHandler(fr"./logs/{datetime.now().strftime('%d-%m-%Y')}_downloads_faturas_energisa.log", encoding='utf-8'),
+        logging.StreamHandler()
     ]
 )
 
-error_uc=[]
+error_uc={}
 
 class EnergisaAutomacao:
     BASE_URL = "https://servicos.energisa.com.br"
@@ -184,10 +185,10 @@ class EnergisaAutomacao:
                 self.utk_token = infos.get("utk", "")
                 self.refresh_token = infos.get("refreshToken", "")
                 self.retk_token = infos.get("retk", "")
-                print(" Token da Energisa validado")
+                logging.info("Token da Energisa validado")
                 return True
         except Exception as e:
-            print(f" Falha na validação: {e}")
+            logging.error(f"Falha na validação: {e}")
         return False
 
     def consultar_unidades_consumidoras(self):
@@ -209,8 +210,7 @@ class EnergisaAutomacao:
             resposta = response.json()
 
             unidades_data = resposta.get("infos", [])
-
-            logging.info(f" {len(unidades_data)} unidades encontradas:")
+            logging.info(f"{len(unidades_data)} unidades encontradas:")
 
             unidades_mapeadas = []
             for uc in unidades_data:
@@ -223,12 +223,9 @@ class EnergisaAutomacao:
                     'cidade': uc.get('nomeMunicipio'),
                     'situacao': 'ATIVA' if uc.get('ucAtiva') else 'INATIVA'
                 }
-                if unidade['situacao'] == 'INATIVA':
-                    pass
-                else:
+                if unidade['situacao'] == 'ATIVA':
                     unidades_mapeadas.append(unidade)
                     logging.info(f"  UC: {unidade['codigoEmpresaWeb']}/{unidade['cdc']}-{unidade['digitoVerificadorCdc']} | {unidade['nome']} | STATUS: {unidade['situacao']}")
-            #print(f"{unidades_mapeadas} ")
 
             return unidades_mapeadas
 
@@ -237,38 +234,43 @@ class EnergisaAutomacao:
             return []
 
     def baixar_fatura_direto(self, cdc, digito_verificador, codigo_empresa, mes=mes_atual, ano=ano_atual):
-        """Baixa fatura diretamente sem consultar primeiro (igual ao seu código que funciona)"""
+        """Baixa fatura diretamente"""
         if not self.login_completo or not cdc:
             return False
 
         logging.info(f"\nINICIANDO DOWNLOAD DA FATURA PARA CDC {cdc}...")
-        # Paylod usando as mesma chamadas do postman
+
+        # Payload com estrutura idêntica ao site
         payload = {
-            "codigoEmpresaWeb": codigo_empresa,
-            "cdc": cdc,
-            "digitoVerificadorCdc": digito_verificador,
-            "ano": ano,
-            "mes": mes,
+            "codigoEmpresaWeb": int(codigo_empresa),
+            "cdc": int(cdc),
+            "digitoVerificadorCdc": int(digito_verificador),
+            "ano": int(ano),
+            "mes": int(mes),
             "cdcRed": None,
             "fatura": 0,
-            "ate": self.access_token,
-            "udk": self.udk_token,
-            "utk": self.utk_token,
-            "refreshToken": self.refresh_token,
-            "retk": self.retk_token
+            "ate": str(self.access_token) if self.access_token else "",
+            "udk": str(self.udk_token) if self.udk_token else "",
+            "utk": str(self.utk_token) if self.utk_token else "",
+            "refreshToken": str(self.refresh_token) if self.refresh_token else "",
+            "retk": str(self.retk_token) if self.retk_token else ""
         }
 
-        # Headers iguais ao usados no postman
+        # Headers completos
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
             'Content-Type': 'application/json',
-            'Cookie': "; ".join([f"{k}={v}" for k, v in self.session.cookies.get_dict().items()])
+            'Origin': 'https://servicos.energisa.com.br',
+            'Referer': 'https://servicos.energisa.com.br/segunda-via'
         }
 
         try:
+            # Use json=payload (não data=) para que o requests serialize corretamente
             response = self.session.post(
                 f"{self.BASE_URL}/api/clientes/SegundaVia/Download",
-                json=payload,
+                json=payload,  # Use json= diretamente com o dict
                 headers=headers,
                 timeout=30,
                 impersonate="chrome110"
@@ -279,8 +281,8 @@ class EnergisaAutomacao:
             if response.status_code == 200:
                 if response.content.startswith(b'%PDF'):
                     # Salva o PDF
-                    nome_arquivo = f"faturas/fatura_{ano}-{mes:02d}_UC_{cdc}.pdf"
-                    os.makedirs("../faturas", exist_ok=True)
+                    nome_arquivo = f"faturas/Data_{ano}-{str(mes).zfill(2)}_UC_{codigo_empresa}{cdc}{digito_verificador}.pdf"
+                    os.makedirs("faturas", exist_ok=True)
 
                     with open(nome_arquivo, 'wb') as f:
                         f.write(response.content)
@@ -290,13 +292,14 @@ class EnergisaAutomacao:
                 else:
                     logging.error("Resposta não é PDF válido")
                     logging.error(f"Conteúdo: {response.text[:200]}...")
-                    error_uc.append(fr"{cdc}-{digito_verificador}")
+                    error_uc[f"{codigo_empresa}{cdc}-{digito_verificador}"] = f"Erro {response.status_code}: Resposta não é PDF"
             else:
-                logging.info(f"Erro {response.status_code}: {response.text}")
-                error_uc.append(fr"{cdc}-{digito_verificador}")
+                logging.error(f"Erro {response.status_code}: {response.text}")
+                error_uc[f"{codigo_empresa}{cdc}-{digito_verificador}"] = f"Erro {response.status_code}: {response.text}"
 
         except Exception as e:
             logging.error(f"Erro no download: {e}")
+            error_uc[f"{codigo_empresa}{cdc}-{digito_verificador}"] = f"Exceção: {str(e)}"
 
         return False
 
@@ -316,7 +319,6 @@ class EnergisaAutomacao:
         for unidade in self.unidades_encontradas:
             cdc = unidade['cdc']
 
-            # Tentar baixar fatura diretamente
             if self.baixar_fatura_direto(
                     cdc,
                     unidade['digitoVerificadorCdc'],
@@ -325,36 +327,11 @@ class EnergisaAutomacao:
                     ano
             ):
                 total_baixadas += 1
+                time.sleep(2)  # Pequeno delay entre downloads
 
         logging.info(f"\nTOTAL: {total_baixadas}/{len(self.unidades_encontradas)} faturas baixadas")
 
         return total_baixadas > 0
-
-    """def baixar_faturas_multiplos_meses(self):
-        #Baixa faturas dos últimos meses para todas as unidades
-        if not self.login_completo:
-            return False
-
-        # Tentar os últimos 3 meses
-        meses_para_tentar = [
-            (10, 2025),
-            (9, 2025),
-            (8, 2025),
-        ]
-
-        total_geral = 0
-
-        for mes, ano in meses_para_tentar:
-            print(f"\n{'=' * 60}")
-            print(f"TENTANDO MÊS: {mes}/{ano}")
-            print(f"{'=' * 60}")
-
-            baixadas_mes = self.baixar_faturas_para_todas_unidades(mes, ano)
-            if baixadas_mes:
-                total_geral += baixadas_mes
-
-        print(f"\nTOTAL GERAL: {total_geral} faturas baixadas")
-        return total_geral > 0 """
 
 
 if __name__ == "__main__":
@@ -363,9 +340,14 @@ if __name__ == "__main__":
     if automacao.executar_login_automatico():
         logging.info("Login concluído! Iniciando download das faturas...")
         automacao.baixar_faturas_para_todas_unidades(mes=mes_atual, ano=ano_atual)
-        logging.info(f"U/C que não baixaram a fatura: {error_uc}")
+        if len(error_uc.items()) > 0:
+            email_uc.UnidadesComErro(error_uc)
+            logging.info(f"U/C que não baixaram a fatura: {error_uc}")
+        else:
+            logging.info("Todas as U/Cs listadas estão baixadas")
     else:
         logging.error("Falha no login.")
+
 
 #Classe EnergisaAutomacao - encapsula o comportamento e os dados para interagir com o site da energisa | a classe define as características (atributos) e as ações (métodos) que um objeto deve ter
 #Metodos/Funções - Os métodos são as funções definidas dentro da classe. Eles definem o que o objeto pode fazer.

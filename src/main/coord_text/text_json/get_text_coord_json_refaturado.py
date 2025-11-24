@@ -30,7 +30,7 @@ regioes = {
                  "descricao": "Tributos"},
     "tabela_itens": {"coordenadas": [(16.3, 334.0), (437.1, 545.7)],
                      "descricao": "Tabela de itens da fatura"},
-    "cnpj": {"coordenadas": [(47.1, 212.4), (148.5, 226.0), (47.1, 227.6), (146.1, 216.4)],
+    "cnpj": {"coordenadas": [(43.9, 216.4), (167.7, 235.6), (43.9, 236.4), (166.1, 214.8)],
                  "descricao": "cnpj"}
 }
 

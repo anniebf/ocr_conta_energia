@@ -8,85 +8,84 @@ ESSE CODIGO PEGAS AS COORDENADAS E FAZ UMPRINT E RETRNA UM PNG NA PASTA IMAGENS_
 """
 
 # CONFIGURAÇÃO: Altere este caminho para o seu arquivo PDF
-CAMINHO_PDF = r"C:\bf_ocr\src\resource\pdf\EMP 16 FL 1001001-1730312-NOTA FISCAL Nº 020.841.128 - Série 002 - OK.pdf"
+CAMINHO_PDF = r"C:\bf_ocr\src\main\api\faturas\EMP 16 FL 1008081 - 4668543 -NOTA FISCAL Nº 044.606.418 - Série 001 OK.pdf"
 PASTA_SAIDA = r"C:\bf_ocr\src\main\coord_text\imagens_retornadas"
 
 # Definir as regiões a serem extraídas
 regioes = {
-        "mais_a_cima": {
+    "mais_a_cima": {
         "coordenadas": [
-            (65.5, 5.6),
-            (239.5, 5.6),
-            (63.3, 45.2),
-            (239.5, 40.7)
+            (65.7, 20.0),   # PDF(X, Y) - Canto 1
+            (66.8, 46.8),   # PDF(X, Y) - Canto 2
+            (214.9, 47.9),  # PDF(X, Y) - Canto 3
+            (218.2, 24.5)   # PDF(X, Y) - Canto 4
         ],
-        "descricao": "Área mais acima do documento"
-    },
-    "roteiro_tensao": {
-        "coordenadas": [
-            (11.3, 68.9),
-            (12.4, 76.8),
-            (282.5, 82.5),
-            (280.2, 67.8)
-        ],
-        "descricao": "Roteiro e tensão"
-    },
-    "nota_fiscal_protocolo": {
-        "coordenadas": [
-            (96.0, 169.5),
-            (261.0, 167.2),
-            (97.2, 245.2),
-            (263.3, 241.8)
-        ],
-        "descricao": "Nota fiscal e protocolo"
-    },
-    "nome_endereco": {
-        "coordenadas": [
-            (4.0, 74.8),
-            (3.0, 113.2),
-            (170.8, 114.2),
-            (176.9, 78.9)
-        ],
-        "descricao": "Nome e endereço"
+        "descricao": "Área mais acima"
     },
     "codigo_cliente": {
         "coordenadas": [
-            (185.3, 87.0),
-            (178.5, 110.7),
-            (275.7, 108.5),
-            (273.4, 84.7)
+            (181.5, 85.7),
+            (182.6, 110.2),
+            (270.6, 85.7),
+            (270.6, 108.0)
         ],
         "descricao": "Código do cliente"
     },
-    "ref_total_pagar": {
+    "referencia": {
         "coordenadas": [
-            (15.8, 149.1),
-            (14.7, 162.7),
-            (274.6, 162.7),
-            (275.7, 148.0)
+            (12.2, 138.1),
+            (15.6, 160.3),
+            (270.6, 140.3),
+            (270.6, 162.6)
         ],
-        "descricao": "Referência e total a pagar"
+        "descricao": "Referência"
     },
-    "itens_fatura": {
+    "cnpj": {
         "coordenadas": [
-            (3.4, 385.3),
-            (3.4, 465.5),
-            (288.1, 466.6),
-            (287.0, 385.3)
+            (5.5, 126.5),
+            (8.3, 139.4),
+            (107.3, 126.5),
+            (99.0, 141.2)
+        ],
+        "descricao": "CNPJ"
+    },
+    "nome_endereco": {
+        "coordenadas": [
+            (3.9, 77.0),
+            (2.9, 125.7),
+            (176.3, 80.9),
+            (174.4, 122.8)
+        ],
+        "descricao": "Nome e endereço"
+    },
+    "numero_nota_fiscal": {
+        "coordenadas": [
+            (96.4, 168.5),
+            (95.5, 226.0),
+            (272.8, 170.5),
+            (269.9, 229.9)
+        ],
+        "descricao": "Número da nota fiscal"
+    },
+    "itens": {
+        "coordenadas": [
+            (3.9, 371.2),
+            (1.0, 469.6),
+            (290.3, 368.3),
+            (289.3, 465.7)
         ],
         "descricao": "Itens da fatura"
     },
     "tributos": {
         "coordenadas": [
-            (146.9, 497.1),
-            (144.6, 527.6),
-            (274.6, 524.3),
-            (275.7, 500.5)
+            (143.2, 493.9),
+            (143.2, 529.0),
+            (276.7, 493.0),
+            (273.8, 530.0)
         ],
         "descricao": "Tributos"
     }
 }
-
 #(21.7, 346.2), (434.4, 340.7), (433.1, 439.8), (23.1, 443.9)  cordenadas dos itens do refaturados
 
 def calcular_retangulo_regiao(coordenadas):

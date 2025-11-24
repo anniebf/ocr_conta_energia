@@ -85,7 +85,7 @@ def gerar_csv_dados(linhas):
 
 
 # Configurações
-pdf_path = r"C:\bf_ocr\src\resource\pdf_refaturado\EMP 14 FL 01-2176118-NOTA FISCAL Nº 020.498.824 - Série 002 - OK.pdf"
+pdf_path = r"/src/resource/bkp pdfs/EMP 14 FL 01-2176118-NOTA FISCAL Nº 020.498.824 - Série 002 - OK.pdf"
 coordenadas = [(21.7, 340.7), (434.4, 443.9)]
 pagina = 0
 
