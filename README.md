@@ -2,7 +2,7 @@
 
 ## 📋 Visão Geral
 
-Sistema automatizado para download e processamento de faturas de energia elétrica da **Energisa**, com extração de dados via OCR e conversão para formato XML. O projeto utiliza web scraping, APIs de autenticação e processamento de PDFs para transformar faturas em dados estruturados.
+Sistema automatizado para download, processamento e **envio de faturas de energia elétrica** da **Energisa** para uma **pasta compartilhada de rede**. O processo inclui extração de dados via OCR, conversão para formato XML e sincronização com servidor SMB do usuário bot.
 
 ---
 
@@ -16,6 +16,8 @@ Extração de Dados via Coordenadas (OCR)
 Processamento de Informações
         ↓
 Geração de XML
+        ↓
+Envio para Pasta Compartilhada (PRINCIPAL) ⭐
 ```
 
 ---
@@ -26,8 +28,8 @@ Geração de XML
 bf_ocr/
 ├── src/
 │   ├── main/
-│   │   ├── api/                          # ⭐ Download de faturas
-│   │   │   ├── Download_faturas.py      # PRINCIPAL: Automação Energisa
+│   │   ├── api/                          # 📥 Download de faturas
+│   │   │   ├── Download_faturas.py      # Automação Energisa
 │   │   │   ├── Download_faturas_linux.py
 │   │   │   ├── email_uc.py              # Integração com email
 │   │   │   ├── job.py                   # Agendamento de tarefas
@@ -35,7 +37,8 @@ bf_ocr/
 │   │   │
 │   │   ├── coord_text/
 │   │   │   ├── Faturas_retornando_XML/
-│   │   │   │   └── get_text_coord_xml.py # ⭐ Processamento para XML
+│   │   │   │   ├── post_folder_temp_linux.py # ⭐ PRINCIPAL: Envio para pasta compartilhada
+│   │   │   │   └── get_text_coord_xml.py    # Processamento para XML
 │   │   │   ├── ocr_text/                # Testes de extração OCR
 │   │   │   └── text_table_refaturada.py # Teste de tabelas
 │   │   │
@@ -57,7 +60,48 @@ bf_ocr/
 
 ## 🔑 Componentes Principais
 
-### 1️⃣ **Download_faturas.py** (Principal)
+### 1️⃣ **post_folder_temp_linux.py** (Principal - Envio para Pasta Compartilhada)
+**Localização:** `src/main/coord_text/Faturas_retornando_XML/post_folder_temp_linux.py`
+
+#### Função Principal
+**Envia PDFs e XMLs** para uma **pasta compartilhada em rede SMB** do usuário bot via protocolo SMB3:
+- Conexão autenticada com servidor SMB
+- Upload recursivo de pastas
+- Processamento paralelo de múltiplos arquivos
+- Tratamento robusto de erros
+- Suporte a arquivos grandes (4MB chunks)
+
+#### Tecnologias Utilizadas
+- `smbprotocol` - Conexão SMB3 nativa
+- `python-dotenv` - Variáveis de ambiente (.env)
+- `os.walk()` - Processamento recursivo de pastas
+
+#### Configurações Padrão
+```python
+host = "192.168.200.20"              # Servidor SMB
+user = "bf.bot@bomfuturo.com.br"    # Usuário bot
+SHARE_NAME = "temporario$"           # Compartilhamento
+REMOTE_DEST_FOLDER = "fatura_energisa_bot"  # Pasta de destino
+```
+
+#### Pastas que Envia
+1. **PDFs:** `/python_bf/api_energisa/faturas`
+2. **XMLs:** `/python_bf/yolo_xml/xml`
+
+#### Saída
+- ✅ Arquivos salvos na pasta `\\192.168.200.20\temporario$\fatura_energisa_bot\`
+- 📊 Logs de upload no console
+
+#### Exemplo de Uso
+```python
+from post_folder_temp_linux import enviar_temp
+
+enviar_temp()  # Envia as duas pastas para o servidor compartilhado
+```
+
+---
+
+### 2️⃣ **Download_faturas.py** (Etapa 1 - Download)
 **Localização:** `src/main/api/Download_faturas.py`
 
 #### Função Principal
@@ -102,11 +146,11 @@ if automacao.executar_login_automatico():
 
 ---
 
-### 2️⃣ **get_text_coord_xml.py** (Processamento)
+### 3️⃣ **get_text_coord_xml.py** (Etapa 2 - Processamento)
 **Localização:** `src/main/coord_text/Faturas_retornando_XML/get_text_coord_xml.py`
 
 #### Função Principal
-**Extrai dados dos PDFs** utilizando **coordenadas de regiões** e converte para **XML**:
+**Extrai dados dos PDFs** utilizando **coordenadas de regiões** e converte para **XML** (gera saída para envio):
 - Leitura de PDFs com `pdfplumber`
 - Extração de texto por região (coordenadas x, y)
 - Processamento e limpeza de dados
@@ -200,7 +244,7 @@ O script ignora automaticamente:
 
 ## 🧪 Arquivos de Teste
 
-Além dos dois principais, existem testes para validar funcionalidades:
+Além dos três principais, existem testes para validar funcionalidades:
 
 | Arquivo | Propósito |
 |---------|-----------|
@@ -256,13 +300,18 @@ python src/main/api/Download_faturas.py
 python src/main/coord_text/Faturas_retornando_XML/get_text_coord_xml.py
 ```
 
+**Passo 3: Envio para Pasta Compartilhada (PRINCIPAL)**
+```bash
+python src/main/coord_text/Faturas_retornando_XML/post_folder_temp_linux.py
+```
+
 ---
 
 ## 📊 Fluxo de Dados Detalhado
 
 ```
 ┌─────────────────────────────────────────┐
-│  Download_faturas.py                    │
+│  Download_faturas.py (Etapa 1)          │
 │  - Autenticação Energisa                │
 │  - Login automático com MFA             │
 │  - Busca de unidades consumidoras       │
@@ -271,13 +320,13 @@ python src/main/coord_text/Faturas_retornando_XML/get_text_coord_xml.py
                │
                ↓ PDFs salvos
        ┌───────────────────┐
-       │   Pasta: /pdf/    │
+       │  /faturas/        │
        │  *.pdf files      │
        └─────────┬─────────┘
                │
                ↓
 ┌──────────────────────────────────────────┐
-│  get_text_coord_xml.py                   │
+│  get_text_coord_xml.py (Etapa 2)         │
 │  - Lê PDF com pdfplumber                 │
 │  - Extrai texto por coordenadas         │
 │  - Processa tabelas de itens            │
@@ -290,9 +339,25 @@ python src/main/coord_text/Faturas_retornando_XML/get_text_coord_xml.py
                │
                ↓ XMLs gerados
        ┌───────────────────┐
-       │   Pasta: /xml/    │
+       │   /xml/           │
        │  *.xml files      │
-       └───────────────────┘
+       └─────────┬─────────┘
+               │
+               ↓
+┌──────────────────────────────────────────┐
+│  post_folder_temp_linux.py (PRINCIPAL)   │
+│  - Conexão SMB com servidor              │
+│  - Upload recursivo de pastas            │
+│  - PDFs e XMLs para compartilhado        │
+│  - Logs de sucesso/erro                  │
+└──────────────┬──────────────────────────┘
+               │
+               ↓ Arquivos enviados
+       ┌─────────────────────────────────┐
+       │  \\192.168.200.20\temporario$\   │
+       │  fatura_energisa_bot\           │
+       │  (PDFs e XMLs)                  │
+       └─────────────────────────────────┘
 ```
 
 ---
