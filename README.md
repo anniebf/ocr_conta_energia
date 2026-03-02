@@ -37,8 +37,8 @@ bf_ocr/
 │   │   │
 │   │   ├── coord_text/
 │   │   │   ├── Faturas_retornando_XML/
-│   │   │   │   ├── post_folder_temp_linux.py # ⭐ PRINCIPAL: Envio para pasta compartilhada
-│   │   │   │   └── get_text_coord_xml.py    # Processamento para XML
+│   │   │   │   ├── post_folder_temp_linux.py # Envio para pasta compartilhada
+│   │   │   │   └── get_text_coord_xml_baixadas.py #⭐ PRINCIPAL: Processamento para XML
 │   │   │   ├── ocr_text/                # Testes de extração OCR
 │   │   │   └── text_table_refaturada.py # Teste de tabelas
 │   │   │
