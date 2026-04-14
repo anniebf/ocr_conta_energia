@@ -12,7 +12,7 @@ import email_uc
 
 load_dotenv()
 
-mes_atual = 10
+mes_atual = datetime.now().month
 ano_atual = datetime.now().year
 if mes_atual < 10:
     mes_atual = f'0{mes_atual}'
