@@ -11,13 +11,15 @@ Sistema automatizado para download, processamento e **envio de faturas de energi
 ```
 Download de PDFs (Energisa) 
         ↓
-Extração de Dados via Coordenadas (OCR)
+Verificação do modelo da fatura com YOLOV8
         ↓
-Processamento de Informações
+Extração de Dados via Coordenadas de cada modelo (OCR headless)
+        ↓
+Processamento e formatacao das Informações
         ↓
 Geração de XML
         ↓
-Envio para Pasta Compartilhada (PRINCIPAL) ⭐
+Envio para Pasta Compartilhada 
 ```
 
 ---
@@ -28,7 +30,7 @@ Envio para Pasta Compartilhada (PRINCIPAL) ⭐
 bf_ocr/
 ├── src/
 │   ├── main/
-│   │   ├── api/                          # 📥 Download de faturas
+│   │   ├── api/                          #⭐ PRINCIPAL DOWNLOA: Download das faturas de energia
 │   │   │   ├── Download_faturas.py      # Automação Energisa
 │   │   │   ├── Download_faturas_linux.py
 │   │   │   ├── email_uc.py              # Integração com email
@@ -37,8 +39,7 @@ bf_ocr/
 │   │   │
 │   │   ├── coord_text/
 │   │   │   ├── Faturas_retornando_XML/
-│   │   │   │   ├── post_folder_temp_linux.py # Envio para pasta compartilhada
-│   │   │   │   └── get_text_coord_xml_ref_fino.py #⭐ PRINCIPAL: Processamento para XML
+│   │   │   │   └── yolo_pdf_xml.py #⭐ PRINCIPAL XML: Processamento para XML e compartilhamento em rede
 │   │   │   ├── ocr_text/                # Testes de extração OCR
 │   │   │   └── text_table_refaturada.py # Teste de tabelas
 │   │   │
@@ -58,50 +59,9 @@ bf_ocr/
 
 ---
 
-## 🔑 Componentes Principais
+## Componentes Principais
 
-### 1️⃣ **post_folder_temp_linux.py** (Principal - Envio para Pasta Compartilhada)
-**Localização:** `src/main/coord_text/Faturas_retornando_XML/post_folder_temp_linux.py`
-
-#### Função Principal
-**Envia PDFs e XMLs** para uma **pasta compartilhada em rede SMB** do usuário bot via protocolo SMB3:
-- Conexão autenticada com servidor SMB
-- Upload recursivo de pastas
-- Processamento paralelo de múltiplos arquivos
-- Tratamento robusto de erros
-- Suporte a arquivos grandes (4MB chunks)
-
-#### Tecnologias Utilizadas
-- `smbprotocol` - Conexão SMB3 nativa
-- `python-dotenv` - Variáveis de ambiente (.env)
-- `os.walk()` - Processamento recursivo de pastas
-
-#### Configurações Padrão
-```python
-host = "192.168.200.20"              # Servidor SMB
-user = "bf.bot@bomfuturo.com.br"    # Usuário bot
-SHARE_NAME = "temporario$"           # Compartilhamento
-REMOTE_DEST_FOLDER = "fatura_energisa_bot"  # Pasta de destino
-```
-
-#### Pastas que Envia
-1. **PDFs:** `/python_bf/api_energisa/faturas`
-2. **XMLs:** `/python_bf/yolo_xml/xml`
-
-#### Saída
-- ✅ Arquivos salvos na pasta `\\192.168.200.20\temporario$\fatura_energisa_bot\`
-- 📊 Logs de upload no console
-
-#### Exemplo de Uso
-```python
-from post_folder_temp_linux import enviar_temp
-
-enviar_temp()  # Envia as duas pastas para o servidor compartilhado
-```
-
----
-
-### 2️⃣ **Download_faturas.py** (Etapa 1 - Download)
+### **Download_faturas.py** (Etapa 1 - Download)
 **Localização:** `src/main/api/Download_faturas.py`
 
 #### Função Principal
@@ -146,7 +106,7 @@ if automacao.executar_login_automatico():
 
 ---
 
-### 3️⃣ **get_text_coord_xml.py** (Etapa 2 - Processamento)
+### **get_text_coord_xml.py** (Etapa 2 - Processamento)
 **Localização:** `src/main/coord_text/Faturas_retornando_XML/get_text_coord_xml.py`
 
 #### Função Principal
@@ -239,10 +199,36 @@ O script ignora automaticamente:
   </tributos>
 </fatura>
 ```
+#### Enviando Arquivos Para Pasta Compartilhada
+**Envia PDFs e XMLs** para uma **pasta compartilhada em rede SMB** do usuário bot via protocolo SMB3:
+- Conexão autenticada com servidor SMB
+- Upload recursivo de pastas
+- Processamento paralelo de múltiplos arquivos
+- Tratamento robusto de erros
+- Suporte a arquivos grandes (4MB chunks)
+
+#### Tecnologias Utilizadas
+- `smbprotocol` - Conexão SMB3 nativa
+- `python-dotenv` - Variáveis de ambiente (.env)
+
+#### Configurações Padrão
+```python
+host = "192.168.200.20"              # Servidor SMB
+user = "bf.bot@bomfuturo.com.br"    # Usuário bot
+SHARE_NAME = "temporario$"           # Compartilhamento
+REMOTE_DEST_FOLDER = "fatura_energisa_bot"  # Pasta de destino
+```
+
+#### Pastas importantes
+1. **PDFs:** `/python_bf/api_energisa/faturas`
+2. **XMLs:** `/python_bf/yolo_xml/xml`
+
+#### Saída
+- Arquivos salvos na pasta `\\faturaenergia\RPAENERGIA`
 
 ---
 
-## 🧪 Arquivos de Teste
+## Arquivos de Teste
 
 Além dos três principais, existem testes para validar funcionalidades:
 
@@ -257,7 +243,7 @@ Além dos três principais, existem testes para validar funcionalidades:
 
 ---
 
-## 🚀 Como Usar
+##  Como Usar
 
 ### Pré-requisitos
 ```bash
@@ -295,15 +281,9 @@ PASTA_XML = r"C:\bf_ocr\src\resource\xml"
 python src/main/api/Download_faturas.py
 ```
 
-**Passo 2: Processamento para XML**
+**Passo 2: Processamento para XML & Envio para Pasta Compartilhada**
 ```bash
 python src/main/coord_text/Faturas_retornando_XML/get_text_coord_xml.py
-```
-
-**Passo 3: Envio para Pasta Compartilhada (PRINCIPAL)**
-```bash
-python src/main/coord_text/Faturas_retornando_XML/post_folder_temp_linux.py
-```
 
 ---
 
@@ -344,15 +324,6 @@ python src/main/coord_text/Faturas_retornando_XML/post_folder_temp_linux.py
        └─────────┬─────────┘
                │
                ↓
-┌──────────────────────────────────────────┐
-│  post_folder_temp_linux.py (PRINCIPAL)   │
-│  - Conexão SMB com servidor              │
-│  - Upload recursivo de pastas            │
-│  - PDFs e XMLs para compartilhado        │
-│  - Logs de sucesso/erro                  │
-└──────────────┬──────────────────────────┘
-               │
-               ↓ Arquivos enviados
        ┌─────────────────────────────────┐
        │  \\192.168.200.20\temporario$\   │
        │  fatura_energisa_bot\           │
@@ -360,63 +331,6 @@ python src/main/coord_text/Faturas_retornando_XML/post_folder_temp_linux.py
        └─────────────────────────────────┘
 ```
 
----
-
-## 🔍 Exemplo de Processamento
-
-### Entrada (PDF)
-```
-ENERGISA - NOTA FISCAL Nº 020.537.640
-CLIENTE: EXEMPLO LTDA
-CNPJ: 12.345.678/0001-00
-ROTEIRO: 12345
-MATRICULA: 3359145-4
-REFERÊNCIA: 01/2025
-TOTAL A PAGAR: R$ 1.234,56
-
-DISCRIMINAÇÃO DO CONSUMO
-ENERGIA ATIVA        100 KWH    1.234,56
-ICMS                           180,45
-```
-
-### Processamento
-1. Extrai cada região por coordenadas
-2. Limpa formatação (remove "R$", trata separadores)
-3. Normaliza valores: "1.234,56" → 1234.56
-4. Processa itens: "100 KWH" → quantidade: 100
-5. Valida CNPJ no banco de dados
-6. Remove itens de compensação/crédito
-7. Estrutura dados em dicionário
-8. Converte para XML
-
-### Saída (XML)
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<fatura>
-  <cabecalho>
-    <numero_nf>020537640</numero_nf>
-    <cnpj_consumidor>12.345.678/0001-00</cnpj_consumidor>
-    <nome_cliente>EXEMPLO LTDA</nome_cliente>
-    <roteiro>12345</roteiro>
-    <matricula>3359145-4</matricula>
-    <referencia>01/2025</referencia>
-    <total_pagar>1234.56</total_pagar>
-  </cabecalho>
-  <itens>
-    <item>
-      <descricao>ENERGIA ATIVA</descricao>
-      <quantidade>100</quantidade>
-      <unidade>KWH</unidade>
-      <valor>1234.56</valor>
-    </item>
-  </itens>
-  <tributos>
-    <icms>180.45</icms>
-  </tributos>
-</fatura>
-```
-
----
 
 ## 📝 Logs
 
@@ -472,8 +386,10 @@ Formato:
 
 ## 📞 Contato / Suporte
 
-Para dúvidas sobre funcionalidades específicas, consulte os comentários no código-fonte dos arquivos principais.
+Desenvolvedor: Hianny Urt
+ramal: 8777
+filial: Bom Futuro - Escritorio Cuiaba
 
 ---
 
-**Última atualização:** 04 de fevereiro de 2026
+**Última atualização:** 15 de maio de 2026
