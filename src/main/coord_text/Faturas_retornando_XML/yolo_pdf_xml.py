@@ -23,8 +23,15 @@ from database.connect_oracle import retorno_cnpj_pdf
 from dotenv import load_dotenv
 import re
 load_dotenv()
+
 # --- EXCLUIR ARQUIVOS ANTIGOS ---
 
+#resultado = subprocess.run("sudo rm -rf /python_bf/yolo_xml/xml/*", shell=True, capture_output=True, text=True)
+
+#if resultado.returncode == 0:
+#    print("Arquivos XML limpos com sucesso!")
+#else:
+#    print(f"Erro ao limpar: {resultado.stderr}")
 
 # --- CONFIGURAÇÕES GLOBAIS ---
 MODEL_PATH = r'C:/ocr_conta_energia/src/runs/detect/yolov8_notas17/weights/best.pt'
@@ -158,7 +165,6 @@ def detectar_tipo_modelo(pdf_folder: Path) -> Dict[str, str]:
             resultados[file_name] = 'desconhecido'
 
     return resultados
-
 
 # --- FUNÇOES DO SEGUNDO CÓDIGO (PROCESSAMENTO PDF) ---
 def normalizar_valor(valor_str: str) -> float:
@@ -472,6 +478,24 @@ def processar_tributos(texto: str) -> Dict[str, Any]:
 
     return resultado
 
+def processar_area_mais_acima(texto: str) -> Dict[str, Any]:
+    resultado = {}
+    #linhas = [linha.strip() for linha in texto.split('\n') if linha.strip()]
+    #print(f"Área 'mais_a_cima' - Linhas extraídas: {linhas}")
+    match_cnpj = re.search(r"CNPJ\s*([\d./-]+)", texto)
+    if match_cnpj:
+        resultado["cnpj"] = re.sub(r"\D", "", match_cnpj.group(1))
+    else:
+        resultado["cnpj"] = None
+    match_ie = re.search(r"Insc\.\s*Est\.\s*([\d.-]+)", texto)
+    if match_ie:
+        resultado["insc_est"] = re.sub(r"\D", "", match_ie.group(1))
+    else:
+        resultado["insc_est"] = None
+
+    print(f"Área 'mais_a_cima' - Resultado extraído: {resultado}")
+    return resultado
+
 def processar_regiao_parallel(caminho_pdf, modelo_tipo):
     """
     Processa todas as regiões do PDF usando as coordenadas corretas baseadas no tipo de modelo.
@@ -513,6 +537,8 @@ def processar_regiao_parallel(caminho_pdf, modelo_tipo):
                 resultado_plano['cliente'] = processar_nome_endereco(texto)
             elif nome_regiao == 'roteiro_tensao':
                 resultado_plano['roteiro_tensao'] = processar_roteiro_tensao(texto)
+            elif nome_regiao == 'mais_a_cima':
+                resultado_plano['mais_a_cima'] = processar_area_mais_acima(texto)
         except Exception as e:
             print(f"A região {nome_regiao} não está presente nas coordenadas: {e}")
 
@@ -565,6 +591,7 @@ def extrair_informacoes_estruturadas(resultado_plano: Dict[str, Any], tributos_d
     if total_taxas_consolidadas > 0.0:
         itens_fatura_dict['ValorTaxas'] = formatar_valor_br(total_taxas_consolidadas)
 
+
     icms_data = tributos_data.get('icms', {})
     base_calc_icms_float = normalizar_valor(icms_data.get('base_calculo', '0,00'))
     aliquota_icms_str = icms_data.get('aliquota', '0,00')
@@ -589,6 +616,8 @@ def extrair_informacoes_estruturadas(resultado_plano: Dict[str, Any], tributos_d
     cabecalho = {
         "TipoDocumento": "nfcee",
         "EspecieDocumento": "nfcee",
+        "EnergisaCnpj": resultado_plano.get('mais_a_cima', {}).get('cnpj', ""),
+        "EnergisaIncricaoEstatual": resultado_plano.get('mais_a_cima', {}).get('insc_est', ""),
         "DataEmissao": nota_fiscal_data.get("data_emissao", ""),
         "NumeroDocumento": nota_fiscal_data.get("numero_nota_fiscal", ""),
         "Serie": nota_fiscal_data.get("serie_nota_fiscal", ""),
@@ -808,8 +837,8 @@ def main():
         todas_faturas.append(dados_extraidos)
     enviar_faturas()
     if todas_faturas:
-        #faturas_filtradas = filtrar_faturas_duplicadas(todas_faturas)
-        #salvar_xmls_por_uc(faturas_filtradas, PASTA_XML)
+        faturas_filtradas = filtrar_faturas_duplicadas(todas_faturas)
+        salvar_xmls_por_uc(faturas_filtradas, PASTA_XML)
         enviar_faturas()
         print("\nProcessamento concluído. XMLs salvos na pasta:", PASTA_XML)
 
