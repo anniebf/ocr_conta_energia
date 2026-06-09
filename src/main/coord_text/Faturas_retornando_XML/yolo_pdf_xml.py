@@ -39,6 +39,7 @@ PDF_FOLDER = Path(r'C:/ocr_conta_energia/src/main/api/faturas/')
 OUT_DIR = Path(r'C:/ocr_conta_energia/src/runs/runs')
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 CSV_PATH = OUT_DIR / 'detections_pdf_ram.csv'
+CACHE_DETECCOES = OUT_DIR / 'cache_deteccoes.csv'  # Cache para não reprocessar
 DPI = 200  # Resolução para a conversão de PDF para PNG
 
 # Configurações do segundo código
@@ -72,6 +73,50 @@ else:
     names_file = Path(r'C:\yolov2\data\obj.names')
     if names_file.exists():
         class_names = [line.strip() for line in names_file.read_text(encoding='utf-8').splitlines() if line.strip()]
+
+print(f"✅ Class names carregados: {class_names}")
+
+
+# --- FUNÇÕES DE CACHE E DIAGNÓSTICO ---
+def carregar_cache_deteccoes() -> Dict[str, str]:
+    """Carrega o cache de detecções anteriores."""
+    if CACHE_DETECCOES.exists():
+        cache = {}
+        try:
+            with open(CACHE_DETECCOES, 'r') as f:
+                for linha in f:
+                    if ',' in linha:
+                        nome_arquivo, tipo = linha.strip().split(',', 1)
+                        cache[nome_arquivo] = tipo
+            print(f"📦 Cache carregado com {len(cache)} arquivos detectados")
+            return cache
+        except Exception as e:
+            print(f"⚠️  Erro ao carregar cache: {e}")
+    return {}
+
+def salvar_cache_deteccoes(resultados: Dict[str, str]):
+    """Salva os resultados de detecção em cache para uso futuro."""
+    try:
+        with open(CACHE_DETECCOES, 'w') as f:
+            for nome_arquivo, tipo in resultados.items():
+                f.write(f"{nome_arquivo},{tipo}\n")
+        print(f"💾 Cache salvo com {len(resultados)} detecções")
+    except Exception as e:
+        print(f"⚠️  Erro ao salvar cache: {e}")
+
+def diagnosticar_classes_yolo():
+    """Diagnóstico para validar se o YOLO está carregando classes corretamente."""
+    print("\n=== DIAGNÓSTICO YOLO ===")
+    print(f"Model loaded: {model is not None}")
+    print(f"Model has 'names': {hasattr(model, 'names')}")
+    if hasattr(model, 'names'):
+        print(f"Model.names: {model.names}")
+    print(f"class_names carregado: {class_names}")
+    print(f"class_names type: {type(class_names)}")
+    if class_names:
+        print(f"class_names length: {len(class_names)}")
+        print(f"class_names content: {class_names}")
+    print("======================\n")
 
 
 # --- FUNÇÕES DO PRIMEIRO CÓDIGO (DETECÇÃO) ---
@@ -128,19 +173,26 @@ def detectar_tipo_modelo(pdf_folder: Path) -> Dict[str, str]:
             boxes = getattr(r, 'boxes', None)
 
             if not boxes or len(boxes) == 0:
-                print(f'❌ Nenhuma detecção em: {file_name}')
-                resultados[file_name] = 'desconhecido'
+                print(f'❌ Nenhuma detecção em: {file_name} - usando padrão "fino"')
+                resultados[file_name] = 'fino'  # Padrão para nenhuma detecção
                 continue
 
             # Extrair arrays
             try:
                 cls_ids = boxes.cls.cpu().numpy().astype(int)
+                confidences = boxes.conf.cpu().numpy() if hasattr(boxes, 'conf') else None
             except Exception:
                 cls_ids = boxes.cls.numpy().astype(int)
+                confidences = boxes.conf.numpy() if hasattr(boxes, 'conf') else None
 
-            # Determinar o tipo baseado nas classes detectadas
+            # Determinar o tipo baseado nas classes detectadas COM PRIORIDADE LÓGICA
             tipos_detectados = []
-            for cid in cls_ids:
+            contagem_tipos = {'fino': 0, 'refaturado': 0}
+            confiancas_por_tipo = {'fino': [], 'refaturado': []}
+            
+            for idx, cid in enumerate(cls_ids):
+                confianca = confidences[idx] if confidences is not None else 1.0
+                
                 if class_names is not None:
                     if isinstance(class_names, dict):
                         cname = class_names.get(int(cid), str(cid))
@@ -148,21 +200,49 @@ def detectar_tipo_modelo(pdf_folder: Path) -> Dict[str, str]:
                         cname = class_names[int(cid)] if int(cid) < len(class_names) else str(cid)
                 else:
                     cname = str(cid)
-                tipos_detectados.append(cname.lower())
+                
+                cname_lower = cname.lower().strip()
+                tipos_detectados.append((cname_lower, confianca))
+                
+                # Acumular contagem e confiança por tipo
+                if 'refat' in cname_lower or 'refaturado' in cname_lower:
+                    contagem_tipos['refaturado'] += 1
+                    confiancas_por_tipo['refaturado'].append(confianca)
+                elif 'fino' in cname_lower:
+                    contagem_tipos['fino'] += 1
+                    confiancas_por_tipo['fino'].append(confianca)
 
-            # Lógica para determinar se é "fino" ou "refaturado"
-            if any('refaturado' in tipo or 'refat' in tipo for tipo in tipos_detectados):
-                resultados[file_name] = 'refaturado'
-            elif any('fino' in tipo for tipo in tipos_detectados):
+            # Calcular média de confiança para cada tipo
+            conf_media_fino = sum(confiancas_por_tipo['fino']) / len(confiancas_por_tipo['fino']) if confiancas_por_tipo['fino'] else 0.0
+            conf_media_refaturado = sum(confiancas_por_tipo['refaturado']) / len(confiancas_por_tipo['refaturado']) if confiancas_por_tipo['refaturado'] else 0.0
+            conf_max_fino = max(confiancas_por_tipo['fino']) if confiancas_por_tipo['fino'] else 0.0
+            conf_max_refaturado = max(confiancas_por_tipo['refaturado']) if confiancas_por_tipo['refaturado'] else 0.0
+
+            # Debug: mostrar o que foi detectado
+            print(f"   Classes detectadas: {[t[0] for t in tipos_detectados]}")
+            print(f"   Contagem - Fino: {contagem_tipos['fino']}, Refaturado: {contagem_tipos['refaturado']}")
+            print(f"   Confiança Máxima - Fino: {conf_max_fino:.3f}, Refaturado: {conf_max_refaturado:.3f}")
+            print(f"   Confiança Média - Fino: {conf_media_fino:.3f}, Refaturado: {conf_media_refaturado:.3f}")
+
+            # Lógica inteligente: PRIORIDADE ABSOLUTA para detecção de "fino"
+            # Se o modelo detectou "fino", é porque há características de "fino" no PDF
+            if contagem_tipos['fino'] > 0:
+                # "fino" foi detectado - usar como tipo
                 resultados[file_name] = 'fino'
+                print(f"   ⚠️  Ambos detectados, mas 'fino' encontrado → usando 'fino'")
+            elif contagem_tipos['refaturado'] > 0:
+                # Só refaturado detectado
+                resultados[file_name] = 'refaturado'
             else:
-                resultados[file_name] = 'fino'  # padrão
+                # Nenhum detectado - usar padrão
+                resultados[file_name] = 'fino'
 
             print(f"✅ {file_name}: {resultados[file_name]}")
 
         except Exception as e:
             print(f"❌ Erro na detecção para {file_name}: {e}")
-            resultados[file_name] = 'desconhecido'
+            print(f"   Usando padrão 'fino' como fallback")
+            resultados[file_name] = 'fino'
 
     return resultados
 
@@ -802,9 +882,18 @@ def enviar_faturas():
 
 # --- FUNÇÃO PRINCIPAL INTEGRADA ---
 def main():
-    # 1. Primeiro detecta o tipo de modelo para todos os PDFs
+    # 0. Diagnóstico inicial (opcional)
+    # diagnosticar_classes_yolo()  # Descomente se precisar debugar
+    
+    # 1. Primeiro detecta o tipo de modelo para todos os PDFs (com cache)
     print("=== FASE 1: DETECÇÃO DO TIPO DE MODELO ===")
+    
+    cache_previo = carregar_cache_deteccoes()
     tipos_modelo = detectar_tipo_modelo(Path(PASTA_PDFS))
+    
+    # Mesclar com cache anterior
+    tipos_modelo_final = {**cache_previo, **tipos_modelo}
+    salvar_cache_deteccoes(tipos_modelo_final)
 
     # 2. Depois processa cada PDF com as coordenadas corretas
     print("\n=== FASE 2: PROCESSAMENTO DOS PDFs ===")
@@ -819,7 +908,7 @@ def main():
 
     for i, caminho_pdf in enumerate(arquivos_pdf, 1):
         nome_arquivo = caminho_pdf.name
-        modelo_tipo = tipos_modelo.get(nome_arquivo, 'fino')  # padrão para 'fino' se não detectado
+        modelo_tipo = tipos_modelo_final.get(nome_arquivo, 'fino')  # padrão para 'fino' se não detectado
 
         print(f"Processando ({i}/{len(arquivos_pdf)}): {nome_arquivo} - Modelo: {modelo_tipo}")
 
@@ -835,6 +924,7 @@ def main():
         dados_extraidos['@nome'] = nome_arquivo
 
         todas_faturas.append(dados_extraidos)
+    
     enviar_faturas()
     if todas_faturas:
         faturas_filtradas = filtrar_faturas_duplicadas(todas_faturas)
