@@ -62,6 +62,11 @@ ITENS_A_EXCLUIR_DO_CONSUMO = [
     "DEVOLUÇÃO SUBSÍDIO",
 ]
 
+server = os.getenv("server")
+username = os.getenv("username")
+password = os.getenv("password")
+share = os.getenv("share")
+
 # --- INICIALIZAÇÃO DO MODELO YOLO ---
 model = YOLO(MODEL_PATH)
 
@@ -398,6 +403,9 @@ def processar_cnpj(texto: str, nome_titular="") -> dict:
         primeiro_elemento = cnpj_dados_brutos[0]
         if isinstance(primeiro_elemento, tuple) and len(primeiro_elemento) > 0:
             cnpj_completo_str = str(primeiro_elemento[0])
+            
+    elif isinstance(cnpj_dados_brutos, str):
+        cnpj_completo_str = cnpj_dados_brutos
 
     resultado = {"cnpj_consumidor": cnpj_completo_str}
     return resultado
@@ -835,11 +843,6 @@ def converter_lote_para_xml_separado(lote_dados: List[Dict[str, Any]]) -> List[s
 
 # --- FUNÇÃO PARA ENVIAR AS FATURAS VIA SMB PARA PASTA RPAENERGIA ---
 def enviar_faturas():
-
-    server = ""
-    username = ""
-    password = ""
-    share = "rpaenergia"
     
     # Certifique-se de que este caminho está correto e acessível
     local_folder = fr"C:\ocr_conta_energia\src\main\api\faturas"

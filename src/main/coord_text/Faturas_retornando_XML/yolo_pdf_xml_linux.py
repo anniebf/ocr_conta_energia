@@ -59,6 +59,11 @@ ITENS_A_EXCLUIR_DO_CONSUMO = [
     "DEVOLUÇÃO SUBSÍDIO",
 ]
 
+server = os.getenv("server")
+username = os.getenv("username")
+password = os.getenv("password")
+share = os.getenv("share")
+
 # --- INICIALIZAÇÃO DO MODELO YOLO ---
 model = YOLO(MODEL_PATH)
 
@@ -402,6 +407,9 @@ def processar_cnpj(texto: str, nome_titular="") -> dict:
         primeiro_elemento = cnpj_dados_brutos[0]
         if isinstance(primeiro_elemento, tuple) and len(primeiro_elemento) > 0:
             cnpj_completo_str = str(primeiro_elemento[0])
+            
+    elif isinstance(cnpj_dados_brutos, str):
+        cnpj_completo_str = cnpj_dados_brutos
 
     resultado = {"cnpj_consumidor": cnpj_completo_str}
     return resultado
@@ -569,6 +577,23 @@ def processar_tributos(texto: str) -> Dict[str, Any]:
 
     return resultado
 
+def processar_area_mais_acima(texto: str) -> Dict[str, Any]:
+    resultado = {}
+    #linhas = [linha.strip() for linha in texto.split('\n') if linha.strip()]
+    #print(f"Área 'mais_a_cima' - Linhas extraídas: {linhas}")
+    match_cnpj = re.search(r"CNPJ\s*([\d./-]+)", texto)
+    if match_cnpj:
+        resultado["cnpj"] = re.sub(r"\D", "", match_cnpj.group(1))
+    else:
+        resultado["cnpj"] = None
+    match_ie = re.search(r"Insc\.\s*Est\.\s*([\d.-]+)", texto)
+    if match_ie:
+        resultado["insc_est"] = re.sub(r"\D", "", match_ie.group(1))
+    else:
+        resultado["insc_est"] = None
+
+    print(f"Área 'mais_a_cima' - Resultado extraído: {resultado}")
+    return resultado
 
 def processar_regiao_parallel(caminho_pdf, modelo_tipo):
     """
@@ -610,6 +635,8 @@ def processar_regiao_parallel(caminho_pdf, modelo_tipo):
                 resultado_plano['cliente'] = processar_nome_endereco(texto)
             elif nome_regiao == 'roteiro_tensao':
                 resultado_plano['roteiro_tensao'] = processar_roteiro_tensao(texto)
+            elif nome_regiao == 'mais_a_cima':
+                resultado_plano['mais_a_cima'] = processar_area_mais_acima(texto)
         except Exception as e:
             print(f"A região {nome_regiao} não está presente nas coordenadas: {e}")
 
@@ -687,6 +714,8 @@ def extrair_informacoes_estruturadas(resultado_plano: Dict[str, Any], tributos_d
     cabecalho = {
         "TipoDocumento": "nfcee",
         "EspecieDocumento": "nfcee",
+        "EnergisaCnpj": resultado_plano.get('mais_a_cima', {}).get('cnpj', ""),
+        "EnergisaIncricaoEstatual": resultado_plano.get('mais_a_cima', {}).get('insc_est', ""),
         "DataEmissao": nota_fiscal_data.get("data_emissao", ""),
         "NumeroDocumento": nota_fiscal_data.get("numero_nota_fiscal", ""),
         "Serie": nota_fiscal_data.get("serie_nota_fiscal", ""),
@@ -826,10 +855,7 @@ def converter_lote_para_xml_separado(lote_dados: List[Dict[str, Any]]) -> List[s
 
 
 def enviar_faturas():
-    server = "faturaenergia"
-    username = "bf.bot@bomfuturo.com.br"
-    password = "k4$ov7@Jçt"
-    share = "rpaenergia"
+
     # Certifique-se de que este caminho está correto e acessível
     local_folder = r"/python_bf/api_energisa/faturas"
 
