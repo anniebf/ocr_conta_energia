@@ -403,6 +403,9 @@ def processar_cnpj(texto: str, nome_titular="") -> dict:
         if isinstance(primeiro_elemento, tuple) and len(primeiro_elemento) > 0:
             cnpj_completo_str = str(primeiro_elemento[0])
 
+    elif isinstance(cnpj_dados_brutos, str):
+        cnpj_completo_str = cnpj_dados_brutos
+
     resultado = {"cnpj_consumidor": cnpj_completo_str}
     return resultado
 
@@ -529,6 +532,23 @@ def processar_codigo_cliente(texto: str, caminho_pdf: str) -> Dict[str, Any]:
     
     return resultado
 
+def processar_area_mais_acima(texto: str) -> Dict[str, Any]:
+    resultado = {}
+    #linhas = [linha.strip() for linha in texto.split('\n') if linha.strip()]
+    #print(f"Área 'mais_a_cima' - Linhas extraídas: {linhas}")
+    match_cnpj = re.search(r"CNPJ\s*([\d./-]+)", texto)
+    if match_cnpj:
+        resultado["cnpj"] = re.sub(r"\D", "", match_cnpj.group(1))
+    else:
+        resultado["cnpj"] = None
+    match_ie = re.search(r"Insc\.\s*Est\.\s*([\d.-]+)", texto)
+    if match_ie:
+        resultado["insc_est"] = re.sub(r"\D", "", match_ie.group(1))
+    else:
+        resultado["insc_est"] = None
+
+    print(f"Área 'mais_a_cima' - Resultado extraído: {resultado}")
+    return resultado
 
 def processar_ref_total_pagar(texto: str) -> Dict[str, Any]:
     linhas = texto.split('\n')
@@ -610,6 +630,8 @@ def processar_regiao_parallel(caminho_pdf, modelo_tipo):
                 resultado_plano['cliente'] = processar_nome_endereco(texto)
             elif nome_regiao == 'roteiro_tensao':
                 resultado_plano['roteiro_tensao'] = processar_roteiro_tensao(texto)
+            elif nome_regiao == 'mais_a_cima':
+                resultado_plano['mais_a_cima'] = processar_area_mais_acima(texto)
         except Exception as e:
             print(f"A região {nome_regiao} não está presente nas coordenadas: {e}")
 
@@ -687,6 +709,8 @@ def extrair_informacoes_estruturadas(resultado_plano: Dict[str, Any], tributos_d
     cabecalho = {
         "TipoDocumento": "nfcee",
         "EspecieDocumento": "nfcee",
+        "EnergisaCnpj": resultado_plano.get('mais_a_cima', {}).get('cnpj', ""),
+        "EnergisaIncricaoEstatual": resultado_plano.get('mais_a_cima', {}).get('insc_est', ""),
         "DataEmissao": nota_fiscal_data.get("data_emissao", ""),
         "NumeroDocumento": nota_fiscal_data.get("numero_nota_fiscal", ""),
         "Serie": nota_fiscal_data.get("serie_nota_fiscal", ""),
@@ -867,6 +891,9 @@ def enviar_faturas():
 
     except Exception as e:
         print(f"❌ Erro na conexão: {e}")
+
+
+
 
 # --- FUNÇÃO PRINCIPAL INTEGRADA ---
 def main():
