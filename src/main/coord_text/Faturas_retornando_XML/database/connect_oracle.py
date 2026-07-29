@@ -23,6 +23,9 @@ def retorno_cnpj_pdf(prim_num,ult_num,nome_titular,num_insc):
 
     cnpj_atual = cursor.fetchall()
 
+    if cnpj_atual == []:
+        cnpj_atual = "999999999999999"
+
     return cnpj_atual
 
 if __name__ == '__main__':

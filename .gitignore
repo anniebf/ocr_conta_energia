@@ -11,7 +11,7 @@ src/resource/*
 
 # Caches
 *.cache
-
+src\main\coord_text\Faturas_retornando_XML\xml
 # Virtual environments
 env/
 .venv/

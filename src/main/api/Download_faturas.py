@@ -1,3 +1,4 @@
+import subprocess
 import requests
 import msal
 import json
@@ -16,6 +17,13 @@ mes_atual = 10
 ano_atual = datetime.now().year
 if mes_atual < 10:
     mes_atual = f'0{mes_atual}'
+
+resultado = subprocess.run("sudo rm -rf /python_bf/yolo_xml/xml/*", shell=True, capture_output=True, text=True)
+
+if resultado.returncode == 0:
+    print("Arquivos XML limpos com sucesso!")
+else:
+    print(f"Erro ao limpar: {resultado.stderr}")
 
 logging.basicConfig(
     level=logging.INFO,
