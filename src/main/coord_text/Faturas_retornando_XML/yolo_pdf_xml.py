@@ -22,6 +22,8 @@ import shutil
 from database.connect_oracle import retorno_cnpj_pdf
 from dotenv import load_dotenv
 import re
+import requests
+from requests.auth import HTTPBasicAuth
 load_dotenv()
 
 # --- EXCLUIR ARQUIVOS ANTIGOS ---
@@ -61,11 +63,15 @@ ITENS_A_EXCLUIR_DO_CONSUMO = [
     "SUBSTITUIÇÃO TRIBUTÁRIA",
     "DEVOLUÇÃO SUBSÍDIO",
 ]
+server = os.getenv("SMB_SERVER")
+username = os.getenv("SMB_USER")
+password = os.getenv("SMB_PASSWORD")
+share = os.getenv("SMB_SHARE")
 
-server = os.getenv("server")
-username = os.getenv("username")
-password = os.getenv("password")
-share = os.getenv("share")
+url_base = os.getenv("URL_BASE")
+usuario = os.getenv("USER_BASE")
+senha = os.getenv("PASS_BASE")
+tenant_id = os.getenv("TENANT_ID")
 
 # --- INICIALIZAÇÃO DO MODELO YOLO ---
 model = YOLO(MODEL_PATH)
@@ -403,7 +409,7 @@ def processar_cnpj(texto: str, nome_titular="") -> dict:
         primeiro_elemento = cnpj_dados_brutos[0]
         if isinstance(primeiro_elemento, tuple) and len(primeiro_elemento) > 0:
             cnpj_completo_str = str(primeiro_elemento[0])
-            
+
     elif isinstance(cnpj_dados_brutos, str):
         cnpj_completo_str = cnpj_dados_brutos
 
@@ -841,6 +847,53 @@ def converter_lote_para_xml_separado(lote_dados: List[Dict[str, Any]]) -> List[s
 
     return lista_xml
 
+def api_enviar_faturas():
+    pasta_xmls = fr"C:\ocr_conta_energia\src\main\coord_text\Faturas_retornando_XML\xml"
+
+    if not os.path.exists(pasta_xmls):
+        print(f"Erro: A pasta '{pasta_xmls}' não existe.")
+        return
+
+    # Definir os headers exatamente como no Postman
+    headers = {
+        'Content-Type': 'application/xml',
+        'tenantId': tenant_id
+    }
+
+    arquivos = [f for f in os.listdir(pasta_xmls) if f.endswith('.xml')]
+
+    if not arquivos:
+        print(f"Nenhum arquivo .xml encontrado na pasta '{pasta_xmls}'.")
+        return
+
+    print(f"Iniciando envio de {len(arquivos)} arquivo(s)...")
+
+    for arquivo in arquivos:
+        caminho_completo = os.path.join(pasta_xmls, arquivo)
+        
+        try:
+            # Ler o conteúdo do arquivo XML com encode utf-8
+            with open(caminho_completo, 'r', encoding='utf-8') as file:
+                xml_content = file.read()
+
+            # Disparar a requisição POST com Basic Auth
+            response = requests.post(
+                url=url_base,
+                data=xml_content.encode('utf-8'),
+                headers=headers,
+                auth=HTTPBasicAuth(usuario, senha),
+                timeout=30
+            )
+
+   
+            if response.status_code in [200, 201]:
+                print(f"[SUCESSO] Arquivo {arquivo} enviado com sucesso! Status: {response.status_code}")
+            else:
+                print(f"[ERRO] Falha ao enviar {arquivo}. Status: {response.status_code} - Resposta: {response.text}")
+
+        except Exception as e:
+            print(f"[EXCEÇÃO] Erro ao processar o arquivo {arquivo}: {e}") 
+
 # --- FUNÇÃO PARA ENVIAR AS FATURAS VIA SMB PARA PASTA RPAENERGIA ---
 def enviar_faturas():
     
@@ -933,7 +986,9 @@ def main():
         faturas_filtradas = filtrar_faturas_duplicadas(todas_faturas)
         salvar_xmls_por_uc(faturas_filtradas, PASTA_XML)
         enviar_faturas()
+        api_enviar_faturas()
         print("\nProcessamento concluído. XMLs salvos na pasta:", PASTA_XML)
 
 if __name__ == "__main__":
     main()
+    
