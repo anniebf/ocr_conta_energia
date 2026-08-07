@@ -18,6 +18,8 @@ env/
 venv/
 ENV/
 
+src\main\coord_text\Faturas_retornando_XML\xml
+
 # Environment variables
 .env
 .env.*
