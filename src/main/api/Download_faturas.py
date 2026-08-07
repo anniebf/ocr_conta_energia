@@ -7,23 +7,42 @@ import time
 import re
 from curl_cffi import requests as curl_requests
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import email_uc
 
 load_dotenv()
 
-mes_atual = 10
-ano_atual = datetime.now().year
-if mes_atual < 10:
-    mes_atual = f'0{mes_atual}'
+data_atual = datetime.now()
+primeiro_dia_mes_atual = data_atual.replace(day=1)
+data_mes_anterior = primeiro_dia_mes_atual - timedelta(days=1)
+ano_anterior = data_mes_anterior.year
+mes_anterior_int = data_mes_anterior.month
+ano_atual = ano_anterior
 
-resultado = subprocess.run("sudo rm -rf /python_bf/yolo_xml/xml/*", shell=True, capture_output=True, text=True)
-
-if resultado.returncode == 0:
-    print("Arquivos XML limpos com sucesso!")
+if mes_anterior_int < 10:
+    mes_atual = f'0{mes_anterior_int}'
 else:
-    print(f"Erro ao limpar: {resultado.stderr}")
+    mes_atual = str(mes_anterior_int)
+
+if data_atual.day < 10:
+    resultado = subprocess.run("sudo rm -rf /python_bf/api_energisa/faturas/Data_*", shell=True, capture_output=True, text=True)
+
+    if resultado.returncode == 0:
+        print("Arquivos XML limpos com sucesso!")
+    else:
+        print(f"Erro ao limpar: {resultado.stderr}")
+
+else:
+    if data_atual.month < 10:
+        mes_atual = f'0{data_atual.month}'
+    else:
+        mes_atual = str(data_atual.month)
+        
+print("-"*30)
+print(fr"Mes atual: {mes_atual}")
+print(fr"Ano atual: {ano_atual}")
+print("-"*30)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -148,7 +167,9 @@ class EnergisaAutomacao:
                 logging.error(f"Falha ao obter token Graph: {resultado}")
             return token
         except Exception as e:
-            logging.exception("Erro ao obter token Graph")
+            logging.exception(fr"Erro ao obter token Graph {e}")
+            email_uc.erro_login(fr"Erro ao obter token Graph {e}")
+
             return None
 
     def _buscar_emails(self, token):
@@ -197,6 +218,7 @@ class EnergisaAutomacao:
                 return True
         except Exception as e:
             logging.error(f"Falha na validação: {e}")
+            email_uc.erro_login(f"Falha na validação: {e}")
         return False
 
     def consultar_unidades_consumidoras(self):

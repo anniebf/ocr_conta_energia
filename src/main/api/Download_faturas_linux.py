@@ -6,21 +6,50 @@ import time
 import re
 from curl_cffi import requests as curl_requests
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
-
+import subprocess
+import email_uc
 load_dotenv()
 
-mes_atual = datetime.now().month
-ano_atual = datetime.now().year
-if mes_atual < 10:
-    mes_atual = f'0{mes_atual}'
+
+
+data_atual = datetime.now()
+primeiro_dia_mes_atual = data_atual.replace(day=1)
+data_mes_anterior = primeiro_dia_mes_atual - timedelta(days=1)
+ano_anterior = data_mes_anterior.year
+mes_anterior_int = data_mes_anterior.month
+ano_atual = ano_anterior
+
+if mes_anterior_int < 10:
+    mes_atual = f'0{mes_anterior_int}'
+else:
+    mes_atual = str(mes_anterior_int)
+
+if data_atual.day < 10:
+    resultado = subprocess.run("sudo rm -rf /python_bf/api_energisa/faturas/Data_*", shell=True, capture_output=True, text=True)
+    print("-"*30)
+    if resultado.returncode == 0:
+
+        print("Faturas de meses anteriores removidas com sucesso.")
+    else:
+        print(f"Erro ao limpar: {resultado.stderr}")
+
+else:
+    if data_atual.month < 10:
+        mes_atual = f'0{data_atual.month}'
+    else:
+        mes_atual = str(data_atual.month)
+print("-"*30)
+print(fr"Mes fatura: {mes_atual}")
+print(fr"Ano fatura: {ano_atual}")
+print("-"*30)
 
 logging.basicConfig(
     level=logging.INFO,  # Pode ser DEBUG, INFO, WARNING, ERROR, CRITICAL
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
-        logging.FileHandler(fr"./logs/{datetime.now().strftime('%d-%m-%yyyy')}_downloads_faturas_energisa.log", encoding='utf-8'),
+        logging.FileHandler(fr"./logs/{datetime.now().strftime('%d-%m-%Y')}_downloads_faturas_energisa.log", encoding='utf-8'),
         logging.StreamHandler()  # Mostra também no console
     ]
 )
@@ -140,6 +169,7 @@ class EnergisaAutomacao:
             return token
         except Exception as e:
             logging.exception("Erro ao obter token Graph")
+            email_uc.erro_login(fr"Erro ao obter token Graph {e}")
             return None
 
     def _buscar_emails(self, token):
@@ -188,6 +218,7 @@ class EnergisaAutomacao:
                 return True
         except Exception as e:
             logging.info(f" Falha na validação: {e}")
+            email_uc.erro_login(f" Falha na validação: {e}")
         return False
 
     def consultar_unidades_consumidoras(self):
@@ -279,7 +310,7 @@ class EnergisaAutomacao:
             if response.status_code == 200:
                 if response.content.startswith(b'%PDF'):
                     # Salva o PDF
-                    nome_arquivo = fr"faturas/Data_{ano}-{mes:02d}_UC_{codigo_empresa}{cdc}{digito_verificador}.pdf"
+                    nome_arquivo = fr"faturas/Data_{ano}-{mes}_UC_{codigo_empresa}{cdc}{digito_verificador}.pdf"
                     os.makedirs("../faturas", exist_ok=True)
 
                     with open(nome_arquivo, 'wb') as f:
@@ -333,18 +364,26 @@ class EnergisaAutomacao:
         return total_baixadas > 0
 
 
-if __name__ == "__main__":
+def iniciar_job():
     automacao = EnergisaAutomacao(documento="10425282000122")
 
     if automacao.executar_login_automatico():
         logging.info("Login concluído! Iniciando download das faturas...")
         automacao.baixar_faturas_para_todas_unidades(mes=mes_atual, ano=ano_atual)
-        logging.info(f"U/C que não baixaram a fatura: {error_uc}")
+        if len(error_uc.items()) > 0:
+            email_uc.UnidadesComErro(error_uc)
+            logging.info(f"U/C que não baixaram a fatura: {error_uc}")
+        else:
+            logging.info(f"Todas as U/Cs listadas estao baixadas")
 
-        with open("./log/UC_Com_Erro.txt", 'wb') as uctxt:
-            uctxt.write(error_uc)
     else:
         logging.error("Falha no login.")
+
+
+
+if __name__ == "__main__":
+    iniciar_job()
+
 
 #Classe EnergisaAutomacao - encapsula o comportamento e os dados para interagir com o site da energisa | a classe define as características (atributos) e as ações (métodos) que um objeto deve ter
 #Metodos/Funções - Os métodos são as funções definidas dentro da classe. Eles definem o que o objeto pode fazer.
