@@ -545,6 +545,23 @@ def processar_codigo_cliente(texto: str, caminho_pdf: str) -> Dict[str, Any]:
     
     return resultado
 
+def processar_area_mais_acima(texto: str) -> Dict[str, Any]:
+    resultado = {}
+    #linhas = [linha.strip() for linha in texto.split('\n') if linha.strip()]
+    #print(f"Área 'mais_a_cima' - Linhas extraídas: {linhas}")
+    match_cnpj = re.search(r"CNPJ\s*([\d./-]+)", texto)
+    if match_cnpj:
+        resultado["cnpj"] = re.sub(r"\D", "", match_cnpj.group(1))
+    else:
+        resultado["cnpj"] = None
+    match_ie = re.search(r"Insc\.\s*Est\.\s*([\d.-]+)", texto)
+    if match_ie:
+        resultado["insc_est"] = re.sub(r"\D", "", match_ie.group(1))
+    else:
+        resultado["insc_est"] = None
+
+    print(f"Área 'mais_a_cima' - Resultado extraído: {resultado}")
+    return resultado
 
 def processar_ref_total_pagar(texto: str) -> Dict[str, Any]:
     linhas = texto.split('\n')
@@ -947,6 +964,9 @@ def enviar_faturas():
 
     except Exception as e:
         print(f"❌ Erro na conexão: {e}")
+
+
+
 
 # --- FUNÇÃO PRINCIPAL INTEGRADA ---
 def main():

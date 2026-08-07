@@ -155,6 +155,7 @@ def process_pdfs_to_ram(pdf_folder: Path, dpi: int) -> dict:
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
                 png_buffer = io.BytesIO()
                 img.save(png_buffer, format='PNG')
+                img.save(png_buffer, format='PNG')
                 ram_images[pdf_path.name] = png_buffer.getvalue()
                 print(f" Processado para RAM: {pdf_path.name}")
 
@@ -936,6 +937,61 @@ def enviar_faturas():
     except Exception as e:
         print(f"Erro na conexão: {e}")
 
+def api_enviar_faturas():
+
+    pasta_xmls: str =fr"C:\yolo_xml"
+    url_base: str = "http://10.192.0.116:18087/rest/BFFS02FF/"
+    usuario: str = "admin"
+    senha: str = "Suphml@2026"
+    tenant_id: str = "16,1001001"
+    """
+    Lê todos os arquivos XML de uma pasta e envia via POST para o endpoint do Protheus.
+    """
+    if not os.path.exists(pasta_xmls):
+        print(f"Erro: A pasta '{pasta_xmls}' não existe.")
+        return
+
+    # Definir os headers exatamente como no Postman (Content-Type XML e tenantId)
+    headers = {
+        'Content-Type': 'application/xml',
+        'tenantId': tenant_id
+    }
+
+    # Listar todos os arquivos da pasta
+    arquivos = [f for f in os.listdir(pasta_xmls) if f.endswith('.xml')]
+
+    if not arquivos:
+        print(f"Nenhum arquivo .xml encontrado na pasta '{pasta_xmls}'.")
+        return
+
+    print(f"Iniciando envio de {len(arquivos)} arquivo(s)...")
+
+    for arquivo in arquivos:
+        caminho_completo = os.path.join(pasta_xmls, arquivo)
+        
+        try:
+            # Ler o conteúdo do arquivo XML com encode utf-8
+            with open(caminho_completo, 'r', encoding='utf-8') as file:
+                xml_content = file.read()
+
+            # Disparar a requisição POST com Basic Auth
+            response = requests.post(
+                url=url_base,
+                data=xml_content.encode('utf-8'),
+                headers=headers,
+                auth=HTTPBasicAuth(usuario, senha),
+                timeout=30
+            )
+
+            # Verificar a resposta
+            if response.status_code in [200, 201]:
+                print(f"[SUCESSO] Arquivo {arquivo} enviado com sucesso! Status: {response.status_code}")
+            else:
+                print(f"[ERRO] Falha ao enviar {arquivo}. Status: {response.status_code} - Resposta: {response.text}")
+
+        except Exception as e:
+            print(f"[EXCEÇÃO] Erro ao processar o arquivo {arquivo}: {e}")
+
 # --- FUNÇÃO PRINCIPAL INTEGRADA ---
 def main():
     # 0. Diagnóstico inicial (opcional)
@@ -981,13 +1037,13 @@ def main():
 
         todas_faturas.append(dados_extraidos)
     
-    enviar_faturas()
     if todas_faturas:
         faturas_filtradas = filtrar_faturas_duplicadas(todas_faturas)
         salvar_xmls_por_uc(faturas_filtradas, PASTA_XML)
         enviar_faturas()
         api_enviar_faturas()
         print("\nProcessamento concluído. XMLs salvos na pasta:", PASTA_XML)
+        api_enviar_faturas()
 
 if __name__ == "__main__":
     main()
