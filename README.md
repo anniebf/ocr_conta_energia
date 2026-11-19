@@ -1,193 +1,206 @@
-# BF OCR - Sistema de Automação de Faturas Energisa
+# BF OCR — Automação de Faturas Energisa
 
-## 📋 Visão Geral
+Automação que **baixa as faturas de energia da Energisa**, **identifica o modelo de cada fatura com YOLOv8**, **extrai os dados por coordenadas (OCR)**, gera **XML por unidade consumidora (UC)** e entrega o resultado para a **API de destino** e para a **pasta de rede**.
 
-Sistema automatizado para download, processamento e **envio de faturas de energia elétrica** da **Energisa** para uma **pasta compartilhada de rede**. O processo inclui extração de dados via OCR, conversão para formato XML e sincronização com servidor SMB do usuário bot.
+O projeto tem **duas etapas independentes**, executadas em sequência:
 
----
+| Etapa | O que faz | Arquivo principal | Onde roda |
+|---|---|---|---|
+| **1. Download** | Login na Energisa (com código MFA por e-mail), baixa os PDFs do mês e envia para o SMB | `src/main/api/baixar_faturas.py` | Container Docker |
+| **2. OCR → XML** | Detecta o modelo da fatura (YOLO), extrai os dados, gera XML, envia para a API e para o SMB | `src/main/coord_text/Faturas_retornando_XML/yolo_pdf_xml_linux.py` | Python no servidor |
 
-## DIVIDIDO EM DUAS PARTES- DOWNLOAD DAS FATURAS E OCR XML
-DOWNLOAD DE FATURAS 
-Caminho: \src\main\api\
-Arquivo principal: baixar_faturas.py
-
-OCR XML
-Caminho: \src\main\coord_text\Faturas_retornando_XML\
-Arquivo principal: yolo_pdf_xml.py
-
-```
-
+A **pasta de PDFs** é a ligação entre as duas etapas: a etapa 1 grava e a etapa 2 lê.
 
 ---
 
-## 🎯 Fluxo Principal
+## Sumário
+
+- [Arquitetura](#arquitetura)
+- [Estrutura do projeto](#estrutura-do-projeto)
+- [Etapa 1 — Download das faturas](#etapa-1--download-das-faturas)
+- [Etapa 2 — OCR e geração de XML](#etapa-2--ocr-e-geração-de-xml)
+- [Variáveis de ambiente](#variáveis-de-ambiente)
+- [Agendamento (Airflow)](#agendamento-airflow)
+- [Testes e validação](#testes-e-validação)
+- [Troubleshooting](#troubleshooting)
+- [Pontos de atenção / melhorias](#pontos-de-atenção--melhorias)
+- [Contato](#contato)
+
+---
+
+## Arquitetura
 
 ```
-Download de PDFs (Energisa) 
-        ↓
-Verificação do modelo da fatura com YOLOV8
-        ↓
-Extração de Dados via Coordenadas de cada modelo (OCR headless)
-        ↓
-Processamento e formatacao das Informações
-        ↓
-Geração de XML
-        ↓
-Envio para Pasta Compartilhada 
+                 ┌──────────────────────────────────────────────┐
+                 │  ETAPA 1 — baixar_faturas.py (Docker)        │
+                 │  1. Calcula período (até dia 9 = mês anterior)│
+                 │  2. Login Energisa + código MFA (MS Graph)   │
+                 │  3. Lista UCs ativas e baixa os PDFs         │
+                 │  4. Envia PDFs ao SMB e limpa > 60 dias      │
+                 │  5. Alerta por e-mail (SMTP) se houver falha │
+                 └───────────────────────┬──────────────────────┘
+                                         │ PDFs
+                                         ▼
+                        /python_bf/api_energisa/faturas/
+                                         │
+                                         ▼
+                 ┌──────────────────────────────────────────────┐
+                 │  ETAPA 2 — yolo_pdf_xml_linux.py             │
+                 │  Fase 1: YOLOv8 classifica o modelo          │
+                 │          ("fino" ou "refaturado") + cache    │
+                 │  Fase 2: extrai texto por coordenadas        │
+                 │          (regioes_pdf.py) com pdfplumber     │
+                 │          valida CNPJ no Oracle               │
+                 │          remove duplicadas, gera XML por UC  │
+                 │  Envio:  POST do XML na API (Basic Auth)     │
+                 │          PDFs para o SMB                     │
+                 └───────────────────────┬──────────────────────┘
+                                         │
+                 ┌───────────────────────┼──────────────────────┐
+                 ▼                       ▼                      ▼
+   /python_bf/yolo_xml/xml/       API (URL_BASE)      \\faturaenergia\RPAENERGIA
 ```
 
 ---
 
-## 📁 Estrutura do Projeto
+## Estrutura do projeto
 
 ```
-bf_ocr/
+ocr_conta_energia/
 ├── src/
 │   ├── main/
-│   │   ├── api/                          #⭐ PRINCIPAL DOWNLOA: Download das faturas de energia
-│   │   │   ├── Download_faturas.py      # Automação Energisa
-│   │   │   ├── Download_faturas_linux.py
-│   │   │   ├── email_uc.py              # Integração com email
-│   │   │   ├── job.py                   # Agendamento de tarefas
-│   │   │   └── openia_extractor_cabecalho.py
+│   │   ├── api/                               # ⭐ ETAPA 1 — Download
+│   │   │   ├── baixar_faturas.py              # Script principal (usado no Docker)
+│   │   │   ├── email_uc.py                    # Alerta por e-mail (SMTP)
+│   │   │   ├── Dockerfile                     # Imagem hiannyurt/energisa-download-faturas
+│   │   │   ├── compose.yaml                   # Execução via docker compose
+│   │   │   ├── requirements.txt               # Dependências da etapa 1
+│   │   │   ├── .env.example                   # Modelo de variáveis de ambiente
+│   │   │   └── Download_faturas*.py           # Versões antigas (legado)
 │   │   │
-│   │   ├── coord_text/
-│   │   │   ├── Faturas_retornando_XML/
-│   │   │   │   └── yolo_pdf_xml.py #⭐ PRINCIPAL XML: Processamento para XML e compartilhamento em rede
-│   │   │   ├── ocr_text/                # Testes de extração OCR
-│   │   │   └── text_table_refaturada.py # Teste de tabelas
-│   │   │
-│   │   └── faturas/                      # Armazenamento de PDFs
+│   │   └── coord_text/Faturas_retornando_XML/ # ⭐ ETAPA 2 — OCR → XML
+│   │       ├── yolo_pdf_xml_linux.py          # Script principal (servidor Linux)
+│   │       ├── yolo_pdf_xml.py                # Mesma lógica com caminhos Windows (dev)
+│   │       ├── regioes_pdf.py                 # Coordenadas por modelo (fino/refaturado)
+│   │       ├── database/connect_oracle.py     # Validação de CNPJ no Oracle
+│   │       ├── diagnostico_yolo.py            # Diagnóstico das classes do YOLO
+│   │       └── README_DETECCAO_FINO.md        # Notas sobre a detecção do modelo "fino"
 │   │
-│   └── resource/
-│       ├── pdf/                          # PDFs processados
-│       ├── xml/                          # XMLs gerados
-│       └── pdf_fino/                     # JSONs de dados extraídos
+│   └── runs/detect/yolov8_notas17/            # Modelo YOLOv8 treinado
+│       └── weights/best.pt                    # Pesos usados em produção
 │
-├── APRENDIZADO/                          # Testes e exemplos
-│   ├── json/                             # JSONs exemplo
-│   └── tests/                            # Testes diversos
-│
-└── logs/                                 # Arquivos de log
+├── requirements.txt                           # Dependências da etapa 2
+└── README.md
 ```
 
 ---
 
-## Componentes Principais
+## Etapa 1 — Download das faturas
 
-### **Download_faturas.py** (Etapa 1 - Download)
-**Localização:** `src/main/api/Download_faturas.py`
+### Como funciona
 
-#### Função Principal
-Automatiza o **download de faturas** da plataforma da **Energisa** através de:
-- Autenticação automática (login com MFA - código de segurança)
-- Consulta de unidades consumidoras
-- Busca de faturas por período
-- Download de PDFs
+1. **Período:** até o dia 9 baixa as faturas do mês anterior; a partir do dia 10, as do mês atual.
+2. **Limpeza local:** remove de `faturas/` os PDFs de outros períodos.
+3. **Login:** autentica com o CNPJ (`ENERGISA_DOCUMENTO`) e solicita o código de segurança.
+4. **Código MFA:** lê o e-mail com o código pela **Microsoft Graph API** (MSAL, client credentials).
+5. **Download:** lista as UCs ativas e baixa os PDFs em paralelo (`DOWNLOAD_THREADS`), com novas tentativas (`DOWNLOAD_TENTATIVAS`).
+6. **SMB:** envia os PDFs para `\\SMB_SERVER\SMB_SHARE` e apaga os arquivos com mais de `SMB_RETENCAO_DIAS` dias.
+7. **Alerta:** se alguma UC falhar, envia e-mail via SMTP.
 
-#### Tecnologias Utilizadas
-- `requests` + `curl_cffi` - Requisições HTTP com bypass de segurança
-- `msal` - Autenticação Microsoft
-- `python-dotenv` - Variáveis de ambiente (.env)
-- `logging` - Registro de operações
+Padrão de nome dos arquivos: `Data_AAAA-MM_UC_<numero>.pdf`
 
-#### Fluxo de Autenticação
-```
-1. Obter cookies e token de acesso
-   ↓
-2. Solicitar código de segurança (MFA)
-   ↓
-3. Buscar código recebido por email
-   ↓
-4. Validar código e completar login
-   ↓
-5. Consultar unidades consumidoras
-   ↓
-6. Buscar e baixar faturas em PDF
+> **Erro 412** no log significa que a fatura do período **ainda não foi emitida** para aquela UC. Não é falha do robô.
+
+### Docker
+
+A imagem usa Python 3.12-slim com fuso `America/Cuiaba` (necessário para a regra do dia 10), roda como **usuário não-root (UID 1001)** e **executa uma vez e termina**. Não expõe porta.
+
+**Build e publicação (máquina de desenvolvimento):**
+```bash
+cd src/main/api
+docker build -t hiannyurt/energisa-download-faturas:latest .
+docker push hiannyurt/energisa-download-faturas:latest
 ```
 
-#### Saída
-- 📄 **PDFs salvos** em `src/main/faturas/` ou `src/resource/pdf/`
-- 📊 **Logs de operação** em `./logs/{data}_downloads_faturas_energisa.log`
-
-#### Exemplo de Uso
-```python
-automacao = EnergisaAutomacao(documento="seu_cpf_cnpj")
-if automacao.executar_login_automatico():
-    faturas = automacao.buscar_faturas_por_periodo(mes="01", ano="2025")
-    # PDFs são automaticamente baixados
+**Preparar o servidor (uma vez):**
+```bash
+mkdir -p /python_bf/api_energisa/{logs,faturas}
+chown -R 1001:1001 /python_bf/api_energisa/logs /python_bf/api_energisa/faturas
 ```
+
+**Executar:**
+```bash
+sudo docker run --rm \
+  --add-host faturaenergia:10.194.0.61 \
+  --env-file /python_bf/api_energisa/.env \
+  -v /python_bf/api_energisa/logs:/app/logs:z \
+  -v /python_bf/api_energisa/faturas:/app/faturas:z \
+  hiannyurt/energisa-download-faturas:latest
+```
+
+| Opção | Motivo |
+|---|---|
+| `--rm` | O container é descartado ao terminar |
+| `--add-host` | `faturaenergia` existe só no `/etc/hosts` do servidor, e o container não herda esse arquivo |
+| `--env-file` | As credenciais ficam fora da imagem |
+| `:z` nos volumes | Necessário com **SELinux** ativo (Oracle Linux) |
+| sem `-p` / sem `--restart` | Não é API; com `--restart` o robô entraria em loop |
+
+### Logs
+`/python_bf/api_energisa/logs/AAAA-MM-DD_downloads_faturas_energisa.log`
 
 ---
 
-### **get_text_coord_xml.py** (Etapa 2 - Processamento)
-**Localização:** `src/main/coord_text/Faturas_retornando_XML/get_text_coord_xml.py`
+## Etapa 2 — OCR e geração de XML
 
-#### Função Principal
-**Extrai dados dos PDFs** utilizando **coordenadas de regiões** e converte para **XML** (gera saída para envio):
-- Leitura de PDFs com `pdfplumber`
-- Extração de texto por região (coordenadas x, y)
-- Processamento e limpeza de dados
-- Validação com banco de dados (CNPJ)
-- Conversão final para XML
+### Como funciona
 
-#### Regiões Definidas
-O script mapeia áreas específicas do PDF:
+**Fase 1: detecção do modelo (YOLOv8)**
+- Converte a 1ª página de cada PDF em imagem (PyMuPDF, 200 DPI), em memória.
+- O modelo `best.pt` classifica a fatura como **`fino`** ou **`refaturado`**.
+- Quando não há detecção, assume `fino` como padrão.
+- O resultado fica em cache em `runs/cache_deteccoes.csv`, para não reprocessar o mesmo PDF.
 
-| Região | Descrição | Dados Extraídos |
-|--------|-----------|-----------------|
-| `mais_a_cima` | Cabeçalho superior | Informações gerais |
-| `roteiro_tensao` | Roteiro e tensão | Matricula, classificação |
-| `nota_fiscal_protocolo` | Identificação da fatura | NF, série, protocolo |
-| `nome_endereco` | Dados do cliente | Nome, endereço |
-| `codigo_cliente` | Identificação do cliente | Código UC |
-| `ref_total_pagar` | Período e valor total | Referência, total |
-| `tributos` | Impostos e contribuições | PIS, CONFINS, ICMS |
-| `tabela_itens` | Itens de consumo | Energia, demanda, encargos |
-| `cnpj` | Documento da distribuidora | CNPJ |
+**Fase 2: extração por coordenadas**
+- Para cada PDF, usa as regiões do modelo detectado (`regioes_pdf.py`) e extrai o texto com **pdfplumber**.
 
-#### Principais Funções
+| Região | Dados extraídos |
+|---|---|
+| `mais_a_cima` | Informações gerais do cabeçalho |
+| `roteiro_tensao` | Roteiro, matrícula, classificação |
+| `nota_fiscal_protocolo` | NF, série, protocolo |
+| `nome_endereco` | Nome e endereço do cliente |
+| `codigo_cliente` | Código da UC |
+| `ref_total_pagar` | Mês de referência e total |
+| `tributos` | PIS, COFINS, ICMS |
+| `tabela_itens` | Energia, demanda, encargos |
+| `cnpj` | CNPJ (validado no **Oracle**) |
 
-**1. Extração de Texto**
-```python
-extrair_texto_nas_coordenadas(pdf_path, retangulo)
-# Extrai texto dentro de um retângulo do PDF
+- Normaliza valores no formato brasileiro e contábil: `1.234,56 → 1234.56` e `(1.234,56) → -1234.56`.
+- Ignora itens que não são consumo, listados em `ITENS_A_EXCLUIR_DO_CONSUMO` (compensações, iluminação pública, atualização monetária etc.).
+- Remove faturas duplicadas e gera **um XML por UC** (`dicttoxml`).
+
+**Envio**
+1. **API:** `POST` de cada XML em `URL_BASE`, com Basic Auth e header `tenantId`.
+2. **SMB:** copia os PDFs para `\\SMB_SERVER\SMB_SHARE`.
+
+### Pastas no servidor
+
+| Conteúdo | Caminho |
+|---|---|
+| PDFs (entrada) | `/python_bf/api_energisa/faturas/` |
+| Modelo YOLO | `/python_bf/yolo_xml/runs/detect/yolov8_notas17/weights/best.pt` |
+| XMLs (saída) | `/python_bf/yolo_xml/xml/` (é limpa a cada execução) |
+| Cache de detecção | `/python_bf/yolo_xml/runs/cache_deteccoes.csv` |
+
+### Executar
+```bash
+cd /python_bf/yolo_xml
+source .venv/bin/activate
+python yolo_pdf_xml_linux.py
 ```
 
-**2. Processamento de Itens**
-```python
-processar_tabela_itens(linhas, pdf_path)
-# Converte linhas de fatura em estrutura de dados
-# Exemplo: "100 KWH  1.234,56" → {'quantidade': '100', 'valor': '1234.56'}
-```
-
-**3. Normalização de Valores**
-```python
-normalizar_valor("1.234,56")  # → 1234.56
-normalizar_valor("(1.234,56)") # → -1234.56 (contábil)
-```
-
-**4. Processamento de CNPJ**
-```python
-processar_cnpj(texto, nome_titular)
-# Extrai CNPJ e valida no banco de dados Oracle
-```
-
-**5. Geração de XML**
-```python
-dicttoxml(dados_dict)  # Converte dicionário em XML
-```
-
-#### Itens Excluídos do Consumo
-O script ignora automaticamente:
-- COMPENSACAO POR INDICADOR
-- ATUALIZAÇÃO MONETARIA
-- CONTRIB DE ILUM PUB
-- CUSTO DE DISPONIBILIDADE
-- SUBSTITUIÇÃO TRIBUTÁRIA
-- Entre outros...
-
-#### Estrutura de Saída XML
+### Exemplo de XML gerado
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <fatura>
@@ -195,7 +208,6 @@ O script ignora automaticamente:
     <numero_nf>020.537.640</numero_nf>
     <cnpj_consumidor>XX.XXX.XXX/XXXX-XX</cnpj_consumidor>
     <nome_cliente>CLIENTE EXEMPLO</nome_cliente>
-    <roteiro>12345</roteiro>
     <matricula>3359145-4</matricula>
     <total_pagar>1234.56</total_pagar>
   </cabecalho>
@@ -204,7 +216,6 @@ O script ignora automaticamente:
       <descricao>ENERGIA ATIVA</descricao>
       <quantidade>100</quantidade>
       <valor>1234.56</valor>
-      <icms>180.45</icms>
     </item>
   </itens>
   <tributos>
@@ -213,197 +224,127 @@ O script ignora automaticamente:
   </tributos>
 </fatura>
 ```
-#### Enviando Arquivos Para Pasta Compartilhada
-**Envia PDFs e XMLs** para uma **pasta compartilhada em rede SMB** do usuário bot via protocolo SMB3:
-- Conexão autenticada com servidor SMB
-- Upload recursivo de pastas
-- Processamento paralelo de múltiplos arquivos
-- Tratamento robusto de erros
-- Suporte a arquivos grandes (4MB chunks)
 
-#### Tecnologias Utilizadas
-- `smbprotocol` - Conexão SMB3 nativa
-- `python-dotenv` - Variáveis de ambiente (.env)
+---
 
-#### Configurações Padrão
+## Variáveis de ambiente
+
+> ⚠️ **Formato do `.env` para Docker (`--env-file`):** `CHAVE=valor`, **sem espaços** ao redor do `=`, **sem aspas**, **sem comentário na mesma linha** e com **final de linha Unix (LF)**. O `python-dotenv` aceita esses formatos, o Docker não.
+
+### Etapa 1 — `/python_bf/api_energisa/.env` (modelo em `src/main/api/.env.example`)
+
+| Grupo | Variáveis |
+|---|---|
+| Microsoft Graph (leitura do código MFA) | `GRAPH_CLIENT_ID`, `GRAPH_TENANT_ID`, `GRAPH_CLIENT_SECRET`, `BOT_USER_EMAIL`, `BOT_EMAIL_FOLDER`, `BOT_EMAIL_SUBJECT` |
+| Energisa | `ENERGISA_DOCUMENTO`, `ENERGISA_EMAIL_CODIGO_PREFIXO`, `ENERGISA_EMAIL_CODIGO_DOMINIO` |
+| Execução | `DOWNLOAD_THREADS`, `DOWNLOAD_TENTATIVAS`, `CODIGO_TIMEOUT_S`, `CODIGO_ESPERA_INICIAL_S` |
+| Pasta de rede | `ENVIAR_SMB`, `SMB_SERVER`, `SMB_SHARE`, `SMB_USER`, `SMB_PASSWORD`, `SMB_RETENCAO_DIAS`, `SMB_LIMPEZA_PADRAO` |
+| Alerta por e-mail | `server_smtp`, `port`, `sender_mail`, `password`, `destinatario_email` |
+
+### Etapa 2 — `.env` em `/python_bf/yolo_xml/`
+
+| Grupo | Variáveis |
+|---|---|
+| Pasta de rede | `SMB_SERVER`, `SMB_SHARE`, `SMB_USER`, `SMB_PASSWORD` |
+| API de destino | `URL_BASE`, `USER_BASE`, `PASS_BASE`, `TENANT_ID` |
+| Oracle | `usernameBd`, `passwordBd`, `dsn` |
+
+---
+
+## Agendamento (Airflow)
+
+DAG **`Download_Faturas_Energia`**, task `executar_automacao_energisa`.
+
+A forma recomendada é chamar o Docker com um **`BashOperator`**. Se o container sair com código diferente de 0, a task é marcada como FAILED:
+
 ```python
-host = "192.168.200.20"              # Servidor SMB
-user = "bf.bot@bomfuturo.com.br"    # Usuário bot
-SHARE_NAME = "temporario$"           # Compartilhamento
-REMOTE_DEST_FOLDER = "fatura_energisa_bot"  # Pasta de destino
+from airflow.operators.bash import BashOperator
+
+executar_automacao_energisa = BashOperator(
+    task_id="executar_automacao_energisa",
+    bash_command=(
+        "sudo docker run --rm --add-host faturaenergia:10.194.0.61 "
+        "--env-file /python_bf/api_energisa/.env "
+        "-v /python_bf/api_energisa/logs:/app/logs:z "
+        "-v /python_bf/api_energisa/faturas:/app/faturas:z "
+        "hiannyurt/energisa-download-faturas:latest"
+    ),
+)
 ```
 
-#### Pastas importantes
-1. **PDFs:** `/python_bf/api_energisa/faturas`
-2. **XMLs:** `/python_bf/yolo_xml/xml`
-
-#### Saída
-- Arquivos salvos na pasta `\\faturaenergia\RPAENERGIA`
+> Com `PythonVirtualenvOperator`, a função chamada **não pode usar `sys.exit()`**. Se usar, o Airflow falha com `FileNotFoundError: .../script.out`.
 
 ---
 
-## Arquivos de Teste
+## Testes e validação
 
-Além dos três principais, existem testes para validar funcionalidades:
-
-| Arquivo | Propósito |
-|---------|-----------|
-| `APRENDIZADO/tests/FITZ.py` | Testes com PyMuPDF (FITZ) |
-| `APRENDIZADO/tests/pdf_extractors.py` | Teste de extractores de PDF |
-| `APRENDIZADO/tests/readers_pdf.py` | Leitores de PDF |
-| `APRENDIZADO/tests/regex_pdf.py` | Testes de regex em PDFs |
-| `APRENDIZADO/tests/openia_extractor_*.py` | Testes com OpenAI |
-| `APRENDIZADO/tests/text_extractor_*.py` | Extractores de texto |
-
----
-
-##  Como Usar
-
-### Pré-requisitos
+**Conectividade de dentro do container (SMB e SMTP):**
 ```bash
-pip install -r requirements.txt
+sudo docker run --rm --add-host faturaenergia:10.194.0.61 --entrypoint python \
+  --env-file /python_bf/api_energisa/.env hiannyurt/energisa-download-faturas:latest -c "
+import os,socket
+for v,pv in [('SMB_SERVER',None),('server_smtp','port')]:
+    h=os.environ.get(v); p=int(os.environ.get(pv,'445')) if pv else 445
+    print(v,'=',repr(h),'porta',p)
+    try: socket.create_connection((h,p),5); print('  OK')
+    except Exception as e: print('  FALHOU:',e)
+"
 ```
 
-### Dependências Principais
-- `pdfplumber` - Extração de texto de PDFs
-- `dicttoxml` - Conversão para XML
-- `requests` + `curl_cffi` - Requisições HTTP
-- `msal` - Autenticação
-- `python-dotenv` - Variáveis de ambiente
-- `oracledb` - Conexão com banco Oracle (para validação CNPJ)
+**Checklist após a execução:**
+- [ ] `ls /python_bf/api_energisa/faturas` mostra PDFs `Data_AAAA-MM_UC_*.pdf` do período atual
+- [ ] O log do dia termina com `TOTAL: X/Y faturas baixadas`, e as falhas são apenas `412`
+- [ ] `ls /python_bf/yolo_xml/xml` mostra um XML por UC
+- [ ] A saída da etapa 2 mostra `[SUCESSO]` no POST de cada XML
+- [ ] Os arquivos aparecem em `\\faturaenergia\RPAENERGIA`
 
-### Configuração
-
-1. **Criar arquivo `.env`** em `src/main/api/`:
-```
-ENERGISA_USER=seu_email@example.com
-ENERGISA_PASSWORD=sua_senha
-OUTLOOK_USER=email_outlook@outlook.com
-OUTLOOK_PASSWORD=senha_outlook
-```
-
-2. **Configurar caminhos** em `get_text_coord_xml.py`:
+**Testes unitários sugeridos (pytest) para a etapa 2:**
 ```python
-PASTA_PDFS = r"C:\bf_ocr\src\resource\pdf"
-PASTA_XML = r"C:\bf_ocr\src\resource\xml"
+# test_normalizacao.py
+from yolo_pdf_xml_linux import normalizar_valor
+
+def test_valor_brasileiro():
+    assert normalizar_valor("1.234,56") == 1234.56
+
+def test_valor_contabil_negativo():
+    assert normalizar_valor("(1.234,56)") == -1234.56
 ```
 
-### Execução
+---
 
-**Passo 1: Download de Faturas**
+## Troubleshooting
+
+| Erro | Causa | Solução |
+|---|---|---|
+| `poorly formatted environment: variable 'x ' contains whitespaces` | Espaço antes do `=` no `.env` | Usar `CHAVE=valor` |
+| `Tenant '"e96d..."' not found` | Aspas nos valores do `.env` | Remover as aspas |
+| `Failed to connect to ' faturaenergia:445'` | Espaço depois do `=`, ou host só no `/etc/hosts` | Limpar o `.env` e usar `--add-host` |
+| `Name or service not known` no SMTP | Valor de `server_smtp` com aspas ou espaço | Limpar o `.env` |
+| `permission denied ... docker.sock` | Usuário sem acesso ao Docker | Usar `sudo` ou adicionar ao grupo `docker` |
+| `Permission denied` ao gravar PDF | Pasta não pertence ao UID 1001, ou SELinux | `chown 1001:1001` e `:z` nos volumes |
+| `FileNotFoundError: .../script.out` (Airflow) | `sys.exit()` na função chamada | `BashOperator` ou `raise` no lugar de `sys.exit` |
+| `Erro 412` no download | Fatura do período ainda não emitida | Nenhuma ação; aguardar a emissão |
+
+**Limpar o `.env` automaticamente** (remove `\r`, espaços e aspas, com backup em `.env.bak`):
 ```bash
-python src/main/api/Download_faturas.py
-```
-
-**Passo 2: Processamento para XML & Envio para Pasta Compartilhada**
-```bash
-python src/main/coord_text/Faturas_retornando_XML/get_text_coord_xml.py
-
----
-
-## 📊 Fluxo de Dados Detalhado
-
-```
-┌─────────────────────────────────────────┐
-│  Download_faturas.py (Etapa 1)          │
-│  - Autenticação Energisa                │
-│  - Login automático com MFA             │
-│  - Busca de unidades consumidoras       │
-│  - Download de PDFs por período         │
-└──────────────┬──────────────────────────┘
-               │
-               ↓ PDFs salvos
-       ┌───────────────────┐
-       │  /faturas/        │
-       │  *.pdf files      │
-       └─────────┬─────────┘
-               │
-               ↓
-┌──────────────────────────────────────────┐
-│  get_text_coord_xml.py (Etapa 2)         │
-│  - Lê PDF com pdfplumber                 │
-│  - Extrai texto por coordenadas         │
-│  - Processa tabelas de itens            │
-│  - Normaliza valores                     │
-│  - Consulta CNPJ no banco              │
-│  - Remove itens irrelevantes             │
-│  - Valida estrutura de dados             │
-│  - Converte para XML                     │
-└──────────────┬──────────────────────────┘
-               │
-               ↓ XMLs gerados
-       ┌───────────────────┐
-       │   /xml/           │
-       │  *.xml files      │
-       └─────────┬─────────┘
-               │
-               ↓
-       ┌─────────────────────────────────┐
-       │  \\192.168.200.20\temporario$\   │
-       │  fatura_energisa_bot\           │
-       │  (PDFs e XMLs)                  │
-       └─────────────────────────────────┘
-```
-
-
-## 📝 Logs
-
-Os logs são salvos em:
-- **Download:** `./logs/{data}_downloads_faturas_energisa.log`
-- **Processamento:** Exibe no console e pode ser redirecionado
-
-Formato:
-```
-2025-02-04 10:30:45 [INFO] Iniciando login automático...
-2025-02-04 10:30:46 [INFO] Token de acesso obtido
-2025-02-04 10:30:50 [INFO] Código de segurança validado
-2025-02-04 10:31:00 [INFO] Faturas encontradas: 5
-2025-02-04 10:31:45 [INFO] Downloads concluídos com sucesso
+sudo sed -i.bak -E 's/\r$//; s/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=[[:space:]]*/\1=/; s/[[:space:]]+$//; s/^([A-Za-z_][A-Za-z0-9_]*)=["'"'"'](.*)["'"'"']$/\1=\2/' /python_bf/api_energisa/.env
 ```
 
 ---
 
-## 🛠️ Tecnologias Utilizadas
+## Pontos de atenção / melhorias
 
-| Tecnologia | Propósito |
-|-----------|-----------|
-| **pdfplumber** | Extração precisa de texto de PDFs |
-| **requests/curl_cffi** | Requisições HTTP com suporte a JavaScript |
-| **MSAL** | Autenticação Microsoft (MFA) |
-| **dicttoxml** | Conversão JSON/Dict para XML |
-| **oracledb** | Validação de CNPJs em banco Oracle |
-| **python-dotenv** | Gerenciamento de variáveis de ambiente |
-| **logging** | Registro de operações |
-| **concurrent.futures** | Processamento paralelo de arquivos |
+- **PDFs enviados duas vezes ao SMB:** as etapas 1 e 2 fazem upload dos mesmos PDFs. Uma delas pode deixar de enviar (por exemplo, `ENVIAR_SMB=false` na etapa 1).
+- **Efeitos colaterais no import (etapa 2):** o script executa `sudo rm -rf` na pasta de XML, conecta no Oracle e carrega o YOLO já no import. Mover isso para dentro do `main()` facilita os testes e evita apagar arquivos sem querer.
+- **Containerizar a etapa 2:** hoje ela roda em uma venv no servidor. Com uma imagem Docker, o deploy das duas etapas ficaria padronizado.
+- **Duas versões do mesmo script** (`yolo_pdf_xml.py` e `yolo_pdf_xml_linux.py`): unificar e ler os caminhos de variáveis de ambiente.
+- **Coordenadas fixas:** mudanças no layout da Energisa exigem atualizar `regioes_pdf.py` e, possivelmente, retreinar o YOLO.
+- **Arquivos legados** (`Download_faturas*.py`, `*_antigo.py`, `*copy.py`): mover para uma pasta `legado/` ou remover.
 
 ---
 
-## 📌 Notas Importantes
+## Contato
 
-1. **Autenticação MFA**: O script automático aguarda código por email/SMS
-2. **Coordenadas Fixas**: As coordenadas são específicas para o formato padrão Energisa
-3. **Banco de Dados**: Requer conexão Oracle para validação de CNPJs
-4. **Tratamento de Valores**: Suporta formatação brasileira (1.234,56) e contábil ((1.234,56))
-5. **Processamento Paralelo**: Usa ThreadPoolExecutor para processar múltiplos PDFs
+**Desenvolvedora:** Hianny Urt — Ramal 8777 — Bom Futuro, Escritório Cuiabá
 
----
-
-## 🐛 Possíveis Melhorias
-
-- [ ] Suporte a múltiplos formatos de PDF (além do padrão Energisa)
-- [ ] Detecção automática de coordenadas via ML
-- [ ] API REST para integração com sistemas externos
-- [ ] Dashboard de monitoramento de downloads
-- [ ] Armazenamento em banco de dados estruturado (além de XML)
-
----
-
-## 📞 Contato / Suporte
-
-Desenvolvedor: Hianny Urt
-ramal: 8777
-filial: Bom Futuro - Escritorio Cuiaba
-
----
-
-**Última atualização:** 15 de maio de 2026
+**Última atualização:** 19 de novembro de 2026
