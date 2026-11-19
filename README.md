@@ -6,6 +6,20 @@ Sistema automatizado para download, processamento e **envio de faturas de energi
 
 ---
 
+## DIVIDIDO EM DUAS PARTES- DOWNLOAD DAS FATURAS E OCR XML
+DOWNLOAD DE FATURAS 
+Caminho: \src\main\api\
+Arquivo principal: baixar_faturas.py
+
+OCR XML
+Caminho: \src\main\coord_text\Faturas_retornando_XML\
+Arquivo principal: yolo_pdf_xml.py
+
+```
+
+
+---
+
 ## 🎯 Fluxo Principal
 
 ```
